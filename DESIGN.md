@@ -165,6 +165,51 @@ plan+solve takes 0.7 s wall (measured); the final write re-encodes all rows.
 - Default run against real VRAM: model fits at F16, solver picks all-F16 and
   reports 6.9% budget use — correctly refuses to degrade when there's room.
 
+## D11. IQ family port (2026-08-13, second session)
+
+User asked whether the sub-4.5bpw limitation was real; answer: no, just scope.
+Ported all seven IQ formats (IQ2_XXS/XS/S, IQ3_XXS/S, IQ4_NL/XS) from
+ggml-quants.c at the exact commit brew's llama.cpp was built from (48d22e295).
+
+**Choices:**
+
+- Grid tables extracted mechanically by script, never by hand — the E8/D4
+  codebooks are 256–1024 entries and one wrong value is an invisible quality
+  bug. `src/iq_tables.rs` is generated, header says so.
+- kmap and neighbour lists are rebuilt at first use in Rust (OnceLock) using
+  the same 3-pass algorithm as `iq2xs_init_impl`, instead of extracting
+  another ~50k-entry table. Costs ~1s once per process, keeps the generated
+  file small.
+- ggml's magic constants preserved bit-for-bit: the scale fudge factors
+  (IQ3_XXS d·1.0125, IQ3_S d·1.033, IQ2_S d·0.9875), the per-format epsilon
+  floors, the sign-parity flip of the least-important element, IQ3_S
+  initializing `is_on_grid=false` (unlike XXS) and re-projecting every group.
+- IQ2_XXS/XS require an imatrix in ggml (hard assert); shoehorn instead falls
+  back to a uniform imatrix so the pipeline still works without one, matching
+  its behavior elsewhere.
+- `token_embd.weight` and `output.weight` are floored at 4-bit (IQ4_XS): the
+  embedding has no imatrix data, weighted MSE understates head sensitivity,
+  and llama.cpp's own IQ2 mixes do the same.
+
+**The one real porting trap:** ggml has *two* grid tables per format. The
+`ggml-common.h` grids (used by every dequant kernel) store tuned byte
+magnitudes (8/25/43 for 2-bit — not 8·(2q+1) = 8/24/40). The encoder-side
+`kgrid_*` tables in ggml-quants.c store the true lattice (odd coords 2l+1).
+First attempt built the kmap from the decode grids and immediately overflowed
+the 43692-entry kmap, which is what exposed the distinction. Encoder search
+runs on the true lattice; error measurement decodes with the tuned grids —
+same asymmetry ggml itself has.
+
+**Differential validation** (the load-bearing test): quantized Qwen3-0.6B to
+a forced 2.84 bpw mix (150 tensors IQ2_XXS), and quantized the same model
+with `llama-quantize IQ2_XXS` using the same imatrix. Same held-out text:
+shoehorn mix **PPL 212.7 at 207 MB** vs reference preset **PPL 446.8 at
+219 MB**. Coherent lattice packing confirmed by llama.cpp loading and running
+it on Metal; the 2.1× PPL win over the preset at smaller size is the solver
+doing its job (the preset spends bits uniformly; the knapsack doesn't). The
+absolute numbers also confirm community wisdom: sub-3 bpw on a 0.6B model is
+severely degraded no matter who quantizes it — these formats exist for 7B+.
+
 ### Gotchas hit along the way
 
 - Recent llama-cli defaults into conversation/interactive mode even with

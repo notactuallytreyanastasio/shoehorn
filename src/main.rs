@@ -1,6 +1,8 @@
 mod gguf;
 mod imatrix;
+mod iq_tables;
 mod quant;
+mod quant_iq;
 mod solver;
 mod vram;
 
@@ -184,10 +186,24 @@ fn dispose(t: &TensorInfo) -> Disposition {
         };
         return Disposition::Fixed(ty);
     }
+    // Embeddings and the LM head crater below ~4 bpw in ways weighted MSE
+    // understates (token_embd has no imatrix at all), so like llama.cpp's own
+    // IQ2 mixes we floor these two at 4-bit.
+    let sensitive = t.name == "token_embd.weight" || t.name == "output.weight";
     let mut c = if t.ne0() % 256 == 0 {
-        vec![GgmlType::Q4K, GgmlType::Q5K, GgmlType::Q6K, GgmlType::Q8_0]
+        let mut v = vec![GgmlType::Iq4Xs, GgmlType::Q4K, GgmlType::Q5K, GgmlType::Q6K, GgmlType::Q8_0];
+        if !sensitive {
+            v.extend([
+                GgmlType::Iq2Xxs,
+                GgmlType::Iq2Xs,
+                GgmlType::Iq2S,
+                GgmlType::Iq3Xxs,
+                GgmlType::Iq3S,
+            ]);
+        }
+        v
     } else {
-        vec![GgmlType::Q4_0, GgmlType::Q4_1, GgmlType::Q5_0, GgmlType::Q5_1, GgmlType::Q8_0]
+        vec![GgmlType::Iq4Nl, GgmlType::Q4_0, GgmlType::Q4_1, GgmlType::Q5_0, GgmlType::Q5_1, GgmlType::Q8_0]
     };
     c.push(GgmlType::F16);
     c
@@ -416,6 +432,13 @@ fn file_type_code(entries: &[PlanEntry]) -> u32 {
             GgmlType::Q4K => 15,
             GgmlType::Q5K => 17,
             GgmlType::Q6K => 18,
+            GgmlType::Iq2Xxs => 19,
+            GgmlType::Iq2Xs => 20,
+            GgmlType::Iq3Xxs => 23,
+            GgmlType::Iq4Nl => 25,
+            GgmlType::Iq3S => 26,
+            GgmlType::Iq2S => 28,
+            GgmlType::Iq4Xs => 30,
             _ => 1,
         };
         if e.bytes > best.0 {

@@ -163,17 +163,31 @@ knapsack should minimize.
 
 | format | bits/weight | block | encode notes |
 |---|---|---|---|
+| IQ2_XXS / IQ2_XS / IQ2_S | 2.06 / 2.31 / 2.56 | 256 | E8-lattice codebook, neighbour search, 7-bit parity-packed or verbatim signs |
+| IQ3_XXS / IQ3_S | 3.06 / 3.44 | 256 | D4-lattice codebook, same search machinery |
+| IQ4_XS | 4.25 | 256 | nonlinear 16-value codebook, 6-bit sub-scales |
 | Q4_K | 4.50 | 256 | 8×32 sub-blocks, 6-bit scales+mins, weighted 2-param regression |
 | Q5_K | 5.50 | 256 | as Q4_K plus a high-bit plane |
 | Q6_K | 6.56 | 256 | 16×16 sub-blocks, 8-bit signed scales, weighted grid search |
 | Q8_0 | 8.50 | 32 | absmax scaling (error is negligible; search unnecessary) |
+| IQ4_NL | 4.50 | 32 | nonlinear codebook, fallback for rows not divisible by 256 |
 | Q4_0 / Q4_1 | 4.50 / 5.00 | 32 | legacy fallback for rows not divisible by 256 |
 | Q5_0 / Q5_1 | 5.50 / 6.00 | 32 | legacy fallback, high-bit plane |
 | F16 / BF16 / F32 | 16 / 16 / 32 | n/a | passthrough / conversion |
 
-Rows divisible by 256 get the candidate ladder {Q4_K, Q5_K, Q6_K, Q8_0, F16};
-rows divisible only by 32 get {Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, F16}. Every
-format has a matching in-crate decoder used for error measurement and tests.
+Rows divisible by 256 get the full ladder from IQ2_XXS up to F16; rows
+divisible only by 32 get {IQ4_NL, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, F16}.
+`token_embd.weight` and `output.weight` are floored at 4-bit (IQ4_XS): the
+embedding has no imatrix data, weighted MSE understates LM-head sensitivity,
+and llama.cpp's own IQ2 presets apply the same guard. Every format has a
+matching in-crate decoder used for error measurement and tests.
+
+The IQ ports follow ggml-quants.c at the exact commit the installed llama.cpp
+was built from, including its fudge constants and sign-parity rules; the
+lattice tables in `src/iq_tables.rs` are script-extracted from the reference,
+never hand-typed. ggml keeps two grids per IQ format (a true lattice for the
+encoder, tuned magnitudes for the decoder) and shoehorn reproduces that
+asymmetry — see DESIGN.md D11 for the details.
 
 ## The budget model
 
@@ -277,11 +291,30 @@ Against the machine's real 17.76 GiB budget, the 0.6B model fits at F16 and
 the solver keeps everything at F16 (6.9% utilization). It degrades nothing
 when there is no need.
 
+Pushing into IQ territory with tighter budgets (same model, same held-out
+text):
+
+| envelope | size | overall bpw | held-out PPL |
+|---|---|---|---|
+| BF16 baseline | 1.13 GiB | 16 | 14.53 |
+| 1.75 GiB | 525 MB | 7.31 | 14.62 |
+| 1.53 GiB | 300 MB | ~4.1 | 21.53 |
+| 1.44 GiB | 207 MB | 2.84 | 212.7 |
+| `llama-quantize IQ2_XXS` (control) | 219 MB | 2.34 | 446.8 |
+
+The bottom two rows are the differential validation: at comparable size, the
+solved mix halves the perplexity of llama.cpp's own IQ2_XXS preset, because
+the knapsack spends bits per tensor instead of uniformly. The absolute
+numbers also show why sub-3 bpw formats exist for 7B+ models: a 0.6B is
+severely degraded there no matter who does the quantizing.
+
 ## Project layout
 
 ```
 src/gguf.rs      GGUF v3 reader/writer (arbitrary KVs preserved, aligned offsets)
-src/quant.rs     the 8 block encoders + decoders, weighted scale search
+src/quant.rs     the 8 scale+round encoders + decoders, weighted scale search
+src/quant_iq.rs  the 7 IQ codebook encoders + decoders, lattice neighbour search
+src/iq_tables.rs script-extracted lattice/codebook tables (generated file)
 src/imatrix.rs   legacy + GGUF imatrix parsing, weight sanitization
 src/solver.rs    Lagrangian knapsack + greedy top-up
 src/vram.rs      Metal working-set probe
@@ -304,11 +337,10 @@ perplexity is strong evidence the encoders are bit-compatible.
 
 ## Limitations and roadmap
 
-- No formats below 4.5 bits/weight. The IQ family (IQ2/IQ3/IQ4,
-  codebook-based) isn't implemented, so if a model doesn't fit at
-  Q4_K-everywhere, the honest answer is a smaller model. The solver takes new
-  candidates trivially; implementing IQ encoders is the extension that would
-  pay off most.
+- The floor is now IQ2_XXS at ~2.06 bits/weight. IQ1_S/IQ1_M (~1.6 bpw) are
+  not implemented; below IQ2 quality collapses for all but very large models
+  anyway. Expect IQ-heavy encodes to be slower than K-quant ones (lattice
+  neighbour search): the 0.6B test model takes ~25 s instead of ~6 s.
 - The compute buffer is an estimate. Real allocation varies by llama.cpp
   version and flash-attention path; `--reserve` absorbs the difference. A
   `--calibrate` mode that launches llama.cpp once and reads back actual
@@ -329,8 +361,8 @@ interactive-mode hang, a 15-byte "Entry not found" model download that exits
 - `no room for weights`: your `--ctx` KV cache plus reserve exceeds the
   envelope. Lower `--ctx`, or lower `--reserve` if you've measured real
   usage.
-- `even the smallest mix exceeds the weight budget`: the model can't fit at
-  ~4.5 bits/weight. Use a smaller model (see the IQ limitation above).
+- `even the smallest mix exceeds the weight budget`: the model can't fit even
+  at ~2 bits/weight. Use a smaller model.
 - Scripted smoke tests hang in llama-cli: recent llama.cpp defaults into
   conversation mode and spins on a closed stdin even with `-no-cnv`; use
   `-st` (single-turn), or `llama-perplexity`, which always exits.

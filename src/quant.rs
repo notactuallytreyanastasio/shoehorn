@@ -566,6 +566,13 @@ pub fn encode_row(ty: GgmlType, x: &[f32], im: Option<&[f32]>, out: &mut Vec<u8>
         GgmlType::Q6K => enc_q6_k(x, im, sigma2, out),
         GgmlType::Q4K => enc_qk45(x, im, sigma2, 15, out),
         GgmlType::Q5K => enc_qk45(x, im, sigma2, 31, out),
+        GgmlType::Iq2Xxs => crate::quant_iq::enc_iq2_xxs(x, im, out),
+        GgmlType::Iq2Xs => crate::quant_iq::enc_iq2_xs(x, im, out),
+        GgmlType::Iq2S => crate::quant_iq::enc_iq2_s(x, im, out),
+        GgmlType::Iq3Xxs => crate::quant_iq::enc_iq3_xxs(x, im, out),
+        GgmlType::Iq3S => crate::quant_iq::enc_iq3_s(x, im, out),
+        GgmlType::Iq4Nl => crate::quant_iq::enc_iq4_nl(x, im, out),
+        GgmlType::Iq4Xs => crate::quant_iq::enc_iq4_xs(x, im, out),
         GgmlType::Other(v) => panic!("cannot encode ggml type {v}"),
     }
 }
@@ -596,6 +603,13 @@ pub fn decode_row(ty: GgmlType, data: &[u8], n: usize, out: &mut Vec<f32>) {
         GgmlType::Q6K => dec_q6_k(data, out),
         GgmlType::Q4K => dec_q4_k(data, out),
         GgmlType::Q5K => dec_q5_k(data, out),
+        GgmlType::Iq2Xxs => crate::quant_iq::dec_iq2_xxs(data, out),
+        GgmlType::Iq2Xs => crate::quant_iq::dec_iq2_xs(data, out),
+        GgmlType::Iq2S => crate::quant_iq::dec_iq2_s(data, out),
+        GgmlType::Iq3Xxs => crate::quant_iq::dec_iq3_xxs(data, out),
+        GgmlType::Iq3S => crate::quant_iq::dec_iq3_s(data, out),
+        GgmlType::Iq4Nl => crate::quant_iq::dec_iq4_nl(data, out),
+        GgmlType::Iq4Xs => crate::quant_iq::dec_iq4_xs(data, out),
         GgmlType::Other(v) => panic!("cannot decode ggml type {v}"),
     }
 }
