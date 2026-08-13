@@ -210,6 +210,27 @@ doing its job (the preset spends bits uniformly; the knapsack doesn't). The
 absolute numbers also confirm community wisdom: sub-3 bpw on a 0.6B model is
 severely degraded no matter who quantizes it — these formats exist for 7B+.
 
+## D12. Qwen3-14B validation + packaged demo (2026-08-13)
+
+- `demo/run.sh`: one-command reproduction of the 0.6B ladder (build, fetch,
+  imatrix, three envelopes, held-out PPL each). Kept the small model for the
+  demo so it runs in minutes; the 14B run documents the real thing.
+- 14B source (29.5 GB BF16) exceeds both the GPU working set and system RAM;
+  mmap + row streaming handled it without special cases. Measure+solve 39 s;
+  IQ-heavy full encode ~6 min on 14 cores.
+- bartowski's published Qwen3-14B imatrix is the legacy binary format —
+  first real-world exercise of that parser (280 entries, parsed clean).
+- Real-VRAM solve (17.76 GiB): 99.998% of budget, 9.1 bpw Q8_0/F16 mix.
+  There wasn't disk to write that 15.6 GiB file next to the 28 GB source, so
+  the written artifact is the 8 GiB envelope: 100.000% utilization (28 KB
+  slack), 3.42 bpw, IQ2_XXS→Q6_K.
+- Quality: PPL 6.85 held-out, coherent generation at 23 tok/s. Less than
+  half the PPL of the unquantized 0.6B on the same text — the empirical form
+  of "a big model squeezed beats a small model at full precision."
+- No same-model BF16 baseline PPL: the 28 GB source can't fit the GPU and a
+  CPU pass would take the better part of an hour. The cross-model comparison
+  and absolute PPL carry the argument; noted as a known gap.
+
 ### Gotchas hit along the way
 
 - Recent llama-cli defaults into conversation/interactive mode even with

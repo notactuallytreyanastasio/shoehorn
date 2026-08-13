@@ -308,6 +308,27 @@ the knapsack spends bits per tensor instead of uniformly. The absolute
 numbers also show why sub-3 bpw formats exist for 7B+ models: a 0.6B is
 severely degraded there no matter who does the quantizing.
 
+### Qwen3-14B (the real test)
+
+Source: 29.5 GB BF16 — bigger than this machine's entire GPU working set —
+with bartowski's published (legacy-format) imatrix.
+
+Against the detected 17.76 GiB budget at ctx 8192, the solver fills
+**99.998%** of the 15.64 GiB weight budget (340 KB slack): a 9.1 bpw mix of
+Q8_0 (10.7 GiB), F16 (3.6 GiB where the imatrix concentrates importance), and
+a Q6_K/Q5_K tail. Measure + solve on the 28 GB file: 39 s.
+
+Forced into an **8 GiB** total envelope (the "make it fit my friend's 8 GiB
+M1" case): **100.000%** of the 5.88 GiB weight budget used — 28 KB of slack —
+via a 3.42 bpw mix spanning the entire ladder, IQ2_XXS (87 tensors) through
+Q6_K. Encode time ~6 min. The result generates correct, fluent text at
+23 tok/s and scores **PPL 6.85** on the held-out text.
+
+For scale: that is less than half the perplexity of the *unquantized* 0.6B
+(14.53) on the same text. Given a fixed memory budget, a big model shoehorned
+hard beats a small model treated gently — which is exactly the trade the
+solver exists to make well.
+
 ## Project layout
 
 ```
