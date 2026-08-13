@@ -1,5 +1,13 @@
 [
   {
+    "hash": "06924f81a219d12c19c02cdee22524ce81b05977",
+    "short_hash": "06924f8",
+    "author": "Bobby Grayson",
+    "date": "2026-08-13T15:07:38-04:00",
+    "message": "docs: deslop README\n\nRemove em dashes, bold-first stage labels, unicode arrows, and jargon;\nfold the pipeline stages into prose.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+    "files_changed": 1
+  },
+  {
     "hash": "8162a5e218a93ac220c874712c3c21c10d4d0b5a",
     "short_hash": "8162a5e",
     "author": "Bobby Grayson",
