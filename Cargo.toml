@@ -1,0 +1,12 @@
+[package]
+name = "shoehorn"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.6", features = ["derive"] }
+half = "2.7.1"
+memmap2 = "0.9.11"
+metal = "0.33.0"
+rayon = "1.12.0"
