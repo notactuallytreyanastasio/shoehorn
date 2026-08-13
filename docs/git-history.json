@@ -1,0 +1,10 @@
+[
+  {
+    "hash": "d6e15a39a1166e8f0ebbb9d02d3bc279c794e40c",
+    "short_hash": "d6e15a3",
+    "author": "Bobby Grayson",
+    "date": "2026-08-13T14:34:48-04:00",
+    "message": "shoehorn: exact-VRAM-fit imatrix quantizer for GGUF models\n\nOwn Rust implementations of ggml block formats (Q4_0/1, Q5_0/1, Q8_0,\nQ4_K/Q5_K/Q6_K) with imatrix-weighted scale search; Lagrangian knapsack\nsolver picks a per-tensor mix landing within ~100KB of the Metal\nworking-set budget; llama.cpp runs the result.\n\nValidated on Qwen3-0.6B: 99.98% budget utilization, +0.6% held-out PPL\nat 46% of BF16 size, 210 tok/s on M4 Pro.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+    "files_changed": 0
+  }
+]
