@@ -1,5 +1,13 @@
 [
   {
+    "hash": "29f47d2be2769533f122108092cedbbad4ef7d48",
+    "short_hash": "29f47d2",
+    "author": "Bobby Grayson",
+    "date": "2026-08-13T16:20:52-04:00",
+    "message": "docs: Qwen3-14B validation results\n\nReal-VRAM solve: 99.998% of 15.64GiB, 9.1bpw. 8GiB envelope: 100.000%\nutilization (28KB slack), 3.42bpw IQ2-Q6K mix, PPL 6.85 held-out at\n23 tok/s - less than half the perplexity of the unquantized 0.6B.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+    "files_changed": 2
+  },
+  {
     "hash": "4d8443e304a7a587bd22f6ef3bf303b3f9c47c59",
     "short_hash": "4d8443e",
     "author": "Bobby Grayson",
