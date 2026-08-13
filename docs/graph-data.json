@@ -3772,6 +3772,39 @@
       "created_at": "2026-08-13T15:07:40.655134-04:00",
       "updated_at": "2026-08-13T15:07:40.655134-04:00",
       "metadata_json": "{\"branch\":\"master\",\"commit\":\"06924f8\",\"confidence\":95}"
+    },
+    {
+      "id": 356,
+      "change_id": "8d2fe3da-6b8c-4e62-b83b-9dc134887e06",
+      "node_type": "goal",
+      "title": "Implement IQ2/IQ3/IQ4 codebook quant formats to drop the bpw floor below 4.5",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-13T15:39:35.314552-04:00",
+      "updated_at": "2026-08-13T15:39:35.314552-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90,\"prompt\":\"> The IQ family (IQ2/IQ3/IQ4, codebook-based) isn't implemented, so if a model doesn't fit at Q4_K-everywhere, the honest answer is a smaller model\\n\\nwhats this really mean? cant you just implement it?\\n[User selected: Full family: IQ4 + IQ3 + IQ2]\"}"
+    },
+    {
+      "id": 357,
+      "change_id": "deea5ef3-1817-4f40-b7cb-2f2cd4c60ec5",
+      "node_type": "action",
+      "title": "IQ port validated against llama-quantize control: shoehorn 2.84bpw mix PPL 212.7 vs reference IQ2_XXS preset PPL 446.8 at larger size",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-13T15:51:04.084765-04:00",
+      "updated_at": "2026-08-13T15:51:04.084765-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90}"
+    },
+    {
+      "id": 358,
+      "change_id": "29261ae7-601d-499a-a169-d13a73d26af9",
+      "node_type": "outcome",
+      "title": "IQ family shipped: floor now 2.06bpw; 2.84bpw mix halves PPL of llama.cpp IQ2_XXS preset at smaller size; pushed as 4d8443e",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-13T15:52:31.673171-04:00",
+      "updated_at": "2026-08-13T15:52:31.673171-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"commit\":\"4d8443e\",\"confidence\":95}"
     }
   ],
   "edges": [
@@ -7448,6 +7481,39 @@
       "weight": 1.0,
       "rationale": "Published",
       "created_at": "2026-08-13T15:07:40.665106-04:00"
+    },
+    {
+      "id": 348,
+      "from_node_id": 349,
+      "to_node_id": 356,
+      "from_change_id": "af7da320-3959-418e-b519-5fc3737edb30",
+      "to_change_id": "8d2fe3da-6b8c-4e62-b83b-9dc134887e06",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Extension of shoehorn",
+      "created_at": "2026-08-13T15:39:35.323276-04:00"
+    },
+    {
+      "id": 349,
+      "from_node_id": 356,
+      "to_node_id": 357,
+      "from_change_id": "8d2fe3da-6b8c-4e62-b83b-9dc134887e06",
+      "to_change_id": "deea5ef3-1817-4f40-b7cb-2f2cd4c60ec5",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Differential validation",
+      "created_at": "2026-08-13T15:51:04.092901-04:00"
+    },
+    {
+      "id": 350,
+      "from_node_id": 357,
+      "to_node_id": 358,
+      "from_change_id": "deea5ef3-1817-4f40-b7cb-2f2cd4c60ec5",
+      "to_change_id": "29261ae7-601d-499a-a169-d13a73d26af9",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Shipped",
+      "created_at": "2026-08-13T15:52:31.681767-04:00"
     }
   ],
   "documents": [

@@ -1,5 +1,13 @@
 [
   {
+    "hash": "4d8443e304a7a587bd22f6ef3bf303b3f9c47c59",
+    "short_hash": "4d8443e",
+    "author": "Bobby Grayson",
+    "date": "2026-08-13T15:52:24-04:00",
+    "message": "quant: port the IQ codebook family (IQ2_XXS/XS/S, IQ3_XXS/S, IQ4_NL/XS)\n\nEncoders and decoders ported from ggml-quants.c at commit 48d22e295 (the\nexact source of the installed llama.cpp), dropping the bpw floor from\n4.5 to ~2.06. Lattice/codebook tables are script-extracted; kmap and\nneighbour lists are rebuilt at first use with ggml's 3-pass algorithm.\nPreserves ggml's fudge constants, sign-parity flips, and the\nencoder-lattice vs tuned-decode-grid asymmetry. token_embd and output\nare floored at IQ4_XS like llama.cpp's own IQ2 presets.\n\nDifferential validation on Qwen3-0.6B, same imatrix and held-out text:\nshoehorn's solved 2.84bpw mix reaches PPL 212.7 at 207MB vs PPL 446.8\nat 219MB for llama-quantize's IQ2_XXS preset.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+    "files_changed": 7
+  },
+  {
     "hash": "06924f81a219d12c19c02cdee22524ce81b05977",
     "short_hash": "06924f8",
     "author": "Bobby Grayson",
