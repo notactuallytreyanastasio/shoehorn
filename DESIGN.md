@@ -231,6 +231,34 @@ severely degraded no matter who quantizes it — these formats exist for 7B+.
   CPU pass would take the better part of an hour. The cross-model comparison
   and absolute PPL carry the argument; noted as a known gap.
 
+## D13. Calibrated budgets, split GGUF, streaming writes, MoE (2026-08-14)
+
+- **Streaming writer**: offsets are computable before encoding (sizes are a
+  function of type × shape), so the header goes out first and tensors are
+  encoded and written one at a time. Verified byte-identical to the collected
+  writer. Peak memory is now one tensor, not one model.
+- **Split reader**: `Model::open` reads `-0000N-of-0000M` shards as one
+  logical model. Validated by round-trip: split the 0.6B into 3 shards with
+  llama-gguf-split, quantize from the split, byte-identical output to the
+  single-file path. Real bug found: the merged output inherited `split.count`
+  KVs, which would make llama.cpp hunt for phantom siblings — now stripped.
+- **--calibrate**: run llama-cli -v on the first output, parse
+  `llama_kv_cache: size =` and `compute buffer size =` lines, re-solve with
+  measured overhead, rewrite reusing unchanged tensors. On the 0.6B this
+  reclaimed 220 MiB (the compute estimate is deliberately conservative).
+  Default reserve drops 512→160 MiB under --calibrate since the estimate
+  error it guarded is now measured. Lesson learned on the 30B: the rewrite
+  needs disk for a second output copy; on failure it now keeps the
+  first-pass file (already proven to fit) instead of erroring.
+- **MoE validation** (Qwen3-30B-A3B, 61 GB split BF16, bartowski legacy
+  imatrix): solver filled 16.88 GiB to **0 bytes of slack** at 4.75 bpw.
+  The per-expert imatrix slicing (`ne0 × n_expert` rows) worked first try.
+  The solved structure — IQ2/IQ3 on expert tensors, Q5_K/Q6_K on attention,
+  router, embedding — reproduces expert-community hand-tuning from
+  measurement alone. Held-out PPL 6.91 ± 0.23 (ties the dense 14B fit) at
+  50.6 tok/s (2.2× the 14B: only ~3B active params). Best measured
+  configuration for a 24 GB Mac.
+
 ### Gotchas hit along the way
 
 - Recent llama-cli defaults into conversation/interactive mode even with

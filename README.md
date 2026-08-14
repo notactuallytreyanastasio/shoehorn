@@ -356,6 +356,24 @@ For scale: that is less than half the perplexity of the *unquantized* 0.6B
 hard beats a small model treated gently — which is exactly the trade the
 solver exists to make well.
 
+### Qwen3-30B-A3B (MoE, split source)
+
+Source: 61 GB BF16 in two llama.cpp-style shards — read as one model — with
+bartowski's published imatrix, targeting the real 17.76 GiB budget at
+ctx 8192 with `--kv q8_0`.
+
+The solver filled the 16.88 GiB weight budget to **0 bytes of slack** at
+4.75 bpw overall, and the mix it found is the MoE structure experts hand-tune,
+discovered from the imatrix alone: expert tensors (`ffn_*_exps`, each expert
+rarely active) take IQ2/IQ3, while the always-hot attention paths, router,
+and embedding hold Q5_K/Q6_K.
+
+Result: **PPL 6.91 ± 0.23** held-out — statistically tied with the dense 14B
+fit (6.85) — at **50.6 tok/s**, more than twice the dense model's speed,
+because only ~3B parameters activate per token. On a 24 GB Mac, this is the
+strongest configuration we measured: 30B-class quality at interactive speed,
+filled to the byte.
+
 ## Project layout
 
 ```
