@@ -1,5 +1,13 @@
 [
   {
+    "hash": "0ffbc788eaa9b81f25f563c2ec126ec64cd10a0e",
+    "short_hash": "0ffbc78",
+    "author": "Bobby Grayson",
+    "date": "2026-08-13T23:10:52-04:00",
+    "message": "chore: CI on macOS, MIT license, README around fit\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+    "files_changed": 3
+  },
+  {
     "hash": "29f47d2be2769533f122108092cedbbad4ef7d48",
     "short_hash": "29f47d2",
     "author": "Bobby Grayson",

@@ -3849,6 +3849,28 @@
       "created_at": "2026-08-13T16:20:53.982775-04:00",
       "updated_at": "2026-08-13T16:20:53.982775-04:00",
       "metadata_json": "{\"branch\":\"master\",\"commit\":\"29f47d2\",\"confidence\":95}"
+    },
+    {
+      "id": 363,
+      "change_id": "ae91b16c-9fb4-47c0-bd5b-7bd1e2870b38",
+      "node_type": "goal",
+      "title": "Polish shoehorn for other Mac users: fit one-shot command, progress bars, row-parallel encode, kv-quant budgeting, target presets, CI",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-13T23:04:56.403322-04:00",
+      "updated_at": "2026-08-13T23:04:56.403322-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90,\"prompt\":\"its gonna be all mac, and lets polish for others\"}"
+    },
+    {
+      "id": 364,
+      "change_id": "98a5323f-84d9-4f2e-81ee-e2ac6d215bb0",
+      "node_type": "outcome",
+      "title": "Polish shipped: fit one-shot (validated cold on HF repo), progress bars, row-parallel encode (byte-identical, 25s->18.5s), --kv/--target, CI+MIT",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-13T23:11:01.495281-04:00",
+      "updated_at": "2026-08-13T23:11:01.495281-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"commit\":\"0ffbc78\",\"confidence\":95}"
     }
   ],
   "edges": [
@@ -7591,6 +7613,28 @@
       "weight": 1.0,
       "rationale": "Validation complete",
       "created_at": "2026-08-13T16:20:53.991386-04:00"
+    },
+    {
+      "id": 354,
+      "from_node_id": 349,
+      "to_node_id": 363,
+      "from_change_id": "af7da320-3959-418e-b519-5fc3737edb30",
+      "to_change_id": "ae91b16c-9fb4-47c0-bd5b-7bd1e2870b38",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Polish phase",
+      "created_at": "2026-08-13T23:04:56.411348-04:00"
+    },
+    {
+      "id": 355,
+      "from_node_id": 363,
+      "to_node_id": 364,
+      "from_change_id": "ae91b16c-9fb4-47c0-bd5b-7bd1e2870b38",
+      "to_change_id": "98a5323f-84d9-4f2e-81ee-e2ac6d215bb0",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Polish complete",
+      "created_at": "2026-08-13T23:11:01.502954-04:00"
     }
   ],
   "documents": [
