@@ -755,11 +755,24 @@ fn calibrate_pass(
         fmt_size(plan.total_bytes),
         fmt_size(new_plan.total_bytes)
     );
+    // The rewrite needs scratch space for a second copy of the output; if it
+    // fails (most likely disk), the first pass is still a valid, safe fit.
     let old = Model::open(out_path)?;
     let calibrated = out_path.clone();
-    write_quantized(&calibrated, &new_plan, file, im, Some((&old, plan)))?;
-    print_plan(&new_plan, file);
-    Ok(())
+    match write_quantized(&calibrated, &new_plan, file, im, Some((&old, plan))) {
+        Ok(()) => {
+            print_plan(&new_plan, file);
+            Ok(())
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(out_path.with_extension("gguf.tmp"));
+            eprintln!(
+                "calibration rewrite failed ({e}); keeping the first-pass file, \
+                 which fits within the measured budget"
+            );
+            Ok(())
+        }
+    }
 }
 
 fn main() -> Result<()> {
