@@ -741,8 +741,7 @@ pub fn dec_iq2_s(data: &[u8], out: &mut Vec<f32>) {
                 d * (0.5 + (sc[ib32] >> 4) as f32) * 0.25,
             ];
             for l in 0..4 {
-                let idx = qs[4 * ib32 + l] as usize
-                    | ((((qh[ib32] as usize) << (8 - 2 * l)) & 0x300) as usize);
+                let idx = qs[4 * ib32 + l] as usize | (((qh[ib32] as usize) << (8 - 2 * l)) & 0x300);
                 let grid = IQ2S_GRID[idx].to_le_bytes();
                 let signs = qs[32 + 4 * ib32 + l];
                 for j in 0..8 {

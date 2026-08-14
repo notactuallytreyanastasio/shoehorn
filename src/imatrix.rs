@@ -41,14 +41,14 @@ fn load_gguf(buf: &[u8]) -> Result<Imatrix> {
     }
     let mut out = Imatrix::new();
     for (name, mut s) in sums {
-        if let Some(c) = counts.get(&name) {
-            if !c.is_empty() {
-                let ratio = s.len() / c.len().max(1);
-                for (i, v) in s.iter_mut().enumerate() {
-                    let cnt = c[(i / ratio.max(1)).min(c.len() - 1)];
-                    if cnt > 0.0 {
-                        *v /= cnt;
-                    }
+        if let Some(c) = counts.get(&name)
+            && !c.is_empty()
+        {
+            let ratio = s.len() / c.len().max(1);
+            for (i, v) in s.iter_mut().enumerate() {
+                let cnt = c[(i / ratio.max(1)).min(c.len() - 1)];
+                if cnt > 0.0 {
+                    *v /= cnt;
                 }
             }
         }
@@ -121,12 +121,12 @@ fn sanitize(vals: &mut [f32]) {
 
 /// Weight slice for row `row_idx` of a tensor with row length `ne0` and
 /// `n_mats` matrices (ne2 for 3D experts): imatrix may cover ne0 or ne0*n_mats.
-pub fn row_slice<'a>(
-    im: Option<&'a [f32]>,
+pub fn row_slice(
+    im: Option<&[f32]>,
     ne0: usize,
     rows_per_mat: usize,
     row_idx: usize,
-) -> Option<&'a [f32]> {
+) -> Option<&[f32]> {
     let im = im?;
     if im.len() == ne0 {
         Some(im)

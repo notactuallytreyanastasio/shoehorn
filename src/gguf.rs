@@ -108,7 +108,7 @@ impl GgmlType {
 
     pub fn row_bytes(self, n_per_row: u64) -> u64 {
         let (bs, tb) = self.block_layout();
-        assert!(n_per_row % bs == 0, "row size {n_per_row} not divisible by block {bs}");
+        assert!(n_per_row.is_multiple_of(bs), "row size {n_per_row} not divisible by block {bs}");
         n_per_row / bs * tb
     }
 

@@ -1,3 +1,8 @@
+// The quant kernels are written index-for-index against ggml-quants.c so the
+// port stays auditable against the reference; iterator style would hide that.
+#![allow(clippy::needless_range_loop)]
+
+mod fetch;
 mod gguf;
 mod imatrix;
 mod iq_tables;
@@ -9,8 +14,20 @@ mod vram;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use gguf::{GgmlType, GgufFile, TensorInfo, Value};
+use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::PathBuf;
+
+fn progress(len: u64, msg: &'static str) -> ProgressBar {
+    let pb = ProgressBar::new(len);
+    pb.set_style(
+        ProgressStyle::with_template("{msg:>9} [{bar:30}] {pos}/{len} tensors ({elapsed})")
+            .unwrap()
+            .progress_chars("=> "),
+    );
+    pb.set_message(msg);
+    pb
+}
 
 #[derive(Parser)]
 #[command(name = "shoehorn", about = "Quantize a BF16 GGUF with an imatrix to exactly fit your VRAM, then run it with llama.cpp")]
@@ -33,12 +50,28 @@ struct FitArgs {
     /// override detected VRAM, e.g. "18GiB", "800MB", or bytes
     #[arg(long)]
     budget: Option<String>,
+    /// budget for a different Mac by its RAM size, e.g. "16GB"
+    /// (approximates the macOS GPU working-set limit as 74% of RAM)
+    #[arg(long, conflicts_with = "budget")]
+    target: Option<String>,
+    /// KV cache type to budget for and run with: f16, q8_0, or q4_0
+    #[arg(long, default_value = "f16")]
+    kv: String,
     /// safety margin subtracted from the budget
     #[arg(long, default_value = "512MiB")]
     reserve: String,
     /// measure quantization error on all rows instead of a sample
     #[arg(long)]
     exact_errors: bool,
+}
+
+fn kv_bytes_per_element(kv: &str) -> Result<f64> {
+    Ok(match kv {
+        "f16" => 2.0,
+        "q8_0" => 34.0 / 32.0,
+        "q4_0" => 18.0 / 32.0,
+        other => bail!("unsupported --kv {other} (use f16, q8_0, or q4_0)"),
+    })
 }
 
 #[derive(Subcommand)]
@@ -59,11 +92,50 @@ enum Cmd {
         model: PathBuf,
         #[arg(long, default_value_t = 8192)]
         ctx: u64,
+        /// KV cache type: f16, q8_0, or q4_0
+        #[arg(long, default_value = "f16")]
+        kv: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra: Vec<String>,
+    },
+    /// One-shot: fetch a model (path, HF owner/repo, or URL), get an imatrix,
+    /// quantize to fit, and optionally serve it
+    Fit {
+        /// local GGUF path, Hugging Face repo id like unsloth/Qwen3-4B-GGUF, or URL
+        model: String,
+        #[arg(short, long)]
+        imatrix: Option<PathBuf>,
+        #[command(flatten)]
+        fit: FitTuning,
+        /// output GGUF path (default: <model-stem>-fit.gguf in the current dir)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// launch llama-server on the result
+        #[arg(short, long)]
+        serve: bool,
+        /// extra args after -- go to llama-server with --serve
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra: Vec<String>,
     },
     /// Print detected GPU memory
     Vram,
+}
+
+/// FitArgs minus the model/imatrix paths, for the `fit` subcommand.
+#[derive(clap::Args, Clone)]
+struct FitTuning {
+    #[arg(long, default_value_t = 8192)]
+    ctx: u64,
+    #[arg(long)]
+    budget: Option<String>,
+    #[arg(long, conflicts_with = "budget")]
+    target: Option<String>,
+    #[arg(long, default_value = "f16")]
+    kv: String,
+    #[arg(long, default_value = "512MiB")]
+    reserve: String,
+    #[arg(long)]
+    exact_errors: bool,
 }
 
 fn parse_size(s: &str) -> Result<u64> {
@@ -140,14 +212,20 @@ struct Budget {
 }
 
 fn compute_budget(args: &FitArgs, h: &Hyper) -> Result<Budget> {
-    let (usable_vram, source) = match &args.budget {
-        Some(s) => (parse_size(s)?, format!("--budget {s}")),
-        None => {
+    let (usable_vram, source) = match (&args.budget, &args.target) {
+        (Some(s), _) => (parse_size(s)?, format!("--budget {s}")),
+        (None, Some(t)) => {
+            let ram = parse_size(t)?;
+            (ram * 74 / 100, format!("--target {t} (74% of RAM, macOS working-set approximation)"))
+        }
+        (None, None) => {
             let (b, name) = vram::probe().ok_or_else(|| anyhow!("no Metal device found; pass --budget"))?;
             (b, format!("Metal recommendedMaxWorkingSetSize ({name})"))
         }
     };
-    let kv_bytes = h.n_layer * args.ctx * h.n_kv_head * (h.key_len + h.val_len) * 2;
+    let kv_elem = kv_bytes_per_element(&args.kv)?;
+    let kv_bytes =
+        (h.n_layer as f64 * args.ctx as f64 * h.n_kv_head as f64 * (h.key_len + h.val_len) as f64 * kv_elem) as u64;
     let ubatch = 512u64.min(args.ctx);
     let compute_bytes = ubatch * h.n_vocab * 4 + ubatch * h.n_embd * 4 * 8;
     let reserve = parse_size(&args.reserve)?;
@@ -177,7 +255,7 @@ enum Disposition {
 }
 
 fn dispose(t: &TensorInfo) -> Disposition {
-    let quantizable = t.dims.len() >= 2 && t.name.ends_with(".weight") && t.ne0() % 32 == 0;
+    let quantizable = t.dims.len() >= 2 && t.name.ends_with(".weight") && t.ne0().is_multiple_of(32);
     if !quantizable {
         // keep F32 for small/sensitive tensors (llama.cpp convention)
         let ty = match t.ty {
@@ -190,7 +268,7 @@ fn dispose(t: &TensorInfo) -> Disposition {
     // understates (token_embd has no imatrix at all), so like llama.cpp's own
     // IQ2 mixes we floor these two at 4-bit.
     let sensitive = t.name == "token_embd.weight" || t.name == "output.weight";
-    let mut c = if t.ne0() % 256 == 0 {
+    let mut c = if t.ne0().is_multiple_of(256) {
         let mut v = vec![GgmlType::Iq4Xs, GgmlType::Q4K, GgmlType::Q5K, GgmlType::Q6K, GgmlType::Q8_0];
         if !sensitive {
             v.extend([
@@ -316,9 +394,10 @@ fn build_plan(args: &FitArgs, file: &GgufFile, buf: &[u8]) -> Result<Plan> {
 
     // Measure weighted error for every (tensor, candidate).
     let sample_rows = if args.exact_errors { usize::MAX } else { 128 };
-    eprintln!("measuring quantization error for each tensor x candidate ...");
+    let pb = progress(to_solve.len() as u64, "measuring");
     let choices: Vec<solver::TensorChoices> = to_solve
         .par_iter()
+        .progress_with(pb)
         .map(|(idx, cands)| {
             let t = &file.tensors[*idx];
             let tim = im
@@ -448,6 +527,33 @@ fn file_type_code(entries: &[PlanEntry]) -> u32 {
     best.1
 }
 
+/// Re-encode one tensor to `ty`, parallelizing across row chunks so a single
+/// huge tensor (token_embd) doesn't serialize the tail of the encode phase.
+fn encode_tensor(file: &GgufFile, buf: &[u8], t: &TensorInfo, ty: GgmlType, im: Option<&[f32]>) -> Vec<u8> {
+    let ne0 = t.ne0() as usize;
+    let n_rows = t.n_rows() as usize;
+    let rows_per_mat = if t.dims.len() >= 3 { t.dims[1] as usize } else { n_rows };
+    let src = file.tensor_data(buf, t);
+    let src_rb = t.ty.row_bytes(t.ne0()) as usize;
+    let dst_rb = ty.row_bytes(t.ne0()) as usize;
+    let mut out = vec![0u8; n_rows * dst_rb];
+    let chunk_rows = (n_rows / (rayon::current_num_threads() * 4)).clamp(1, 512);
+    out.par_chunks_mut(chunk_rows * dst_rb).enumerate().for_each(|(ci, dst)| {
+        let r0 = ci * chunk_rows;
+        let mut row = Vec::with_capacity(ne0);
+        let mut enc = Vec::with_capacity(dst_rb);
+        for (k, drow) in dst.chunks_mut(dst_rb).enumerate() {
+            let r = r0 + k;
+            row.clear();
+            quant::decode_row(t.ty, &src[r * src_rb..(r + 1) * src_rb], ne0, &mut row);
+            enc.clear();
+            quant::encode_row(ty, &row, imatrix::row_slice(im, ne0, rows_per_mat, r), &mut enc);
+            drow.copy_from_slice(&enc);
+        }
+    });
+    out
+}
+
 fn write_quantized(
     out_path: &PathBuf,
     plan: &Plan,
@@ -455,25 +561,22 @@ fn write_quantized(
     buf: &[u8],
     im: &imatrix::Imatrix,
 ) -> Result<()> {
-    eprintln!("encoding {} tensors ...", plan.entries.len());
+    let pb = progress(plan.entries.len() as u64, "encoding");
     let tensors: Vec<(TensorInfo, Vec<u8>)> = plan
         .entries
         .par_iter()
+        .progress_with(pb)
         .map(|e| {
             let t = &file.tensors[e.tensor_idx];
             let tim = im
                 .get(&t.name)
                 .or_else(|| im.get(t.name.trim_end_matches(".weight")))
                 .map(|v| v.as_slice());
-            let mut data = Vec::with_capacity(e.bytes as usize);
-            if e.ty == t.ty {
-                data.extend_from_slice(file.tensor_data(buf, t));
+            let data = if e.ty == t.ty {
+                file.tensor_data(buf, t).to_vec()
             } else {
-                for_rows(file, buf, t, tim, 1, |_r, row, ims| {
-                    quant::encode_row(e.ty, row, ims, &mut data);
-                })
-                .unwrap();
-            }
+                encode_tensor(file, buf, t, e.ty, tim)
+            };
             let info = TensorInfo { name: t.name.clone(), dims: t.dims.clone(), ty: e.ty, offset: 0 };
             (info, data)
         })
@@ -529,13 +632,67 @@ fn main() -> Result<()> {
             write_quantized(&output, &plan, &file, &map, &im)?;
             Ok(())
         }
-        Cmd::Run { model, ctx, extra } => {
-            use std::os::unix::process::CommandExt;
-            let mut cmd = std::process::Command::new("llama-server");
-            cmd.arg("-m").arg(&model).arg("-c").arg(ctx.to_string()).arg("-ngl").arg("99");
-            cmd.args(&extra);
-            eprintln!("exec: {cmd:?}");
-            Err(cmd.exec().into())
+        Cmd::Run { model, ctx, kv, extra } => serve(&model, ctx, &kv, &extra),
+        Cmd::Fit { model, imatrix, fit, output, serve: do_serve, extra } => {
+            let resolved = fetch::resolve(&model)?;
+            let imatrix_path = match imatrix {
+                Some(p) => Some(p),
+                None => match resolved.imatrix {
+                    Some(p) => Some(p),
+                    None => fetch::auto_imatrix(&resolved.model, vram::probe().map(|(b, _)| b))?,
+                },
+            };
+            let args = FitArgs {
+                model: resolved.model.clone(),
+                imatrix: imatrix_path,
+                ctx: fit.ctx,
+                budget: fit.budget,
+                target: fit.target,
+                kv: fit.kv.clone(),
+                reserve: fit.reserve,
+                exact_errors: fit.exact_errors,
+            };
+            let out_path = output.unwrap_or_else(|| {
+                let stem = resolved
+                    .model
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "model".into());
+                PathBuf::from(format!("{stem}-fit.gguf"))
+            });
+            let (map, file) = load_model(&args.model)?;
+            let plan = build_plan(&args, &file, &map)?;
+            print_plan(&plan, &file);
+            let im = match &args.imatrix {
+                Some(p) => imatrix::load(p.to_str().unwrap())?,
+                None => imatrix::Imatrix::new(),
+            };
+            write_quantized(&out_path, &plan, &file, &map, &im)?;
+            if do_serve {
+                serve(&out_path, args.ctx, &args.kv, &extra)
+            } else {
+                eprintln!(
+                    "\nrun it: shoehorn run -m {} --ctx {}{}",
+                    out_path.display(),
+                    args.ctx,
+                    if args.kv != "f16" { format!(" --kv {}", args.kv) } else { String::new() }
+                );
+                Ok(())
+            }
         }
     }
+}
+
+/// exec llama-server on a model with full offload and the budgeted KV type.
+fn serve(model: &PathBuf, ctx: u64, kv: &str, extra: &[String]) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    kv_bytes_per_element(kv)?; // validate
+    let mut cmd = std::process::Command::new("llama-server");
+    cmd.arg("-m").arg(model).arg("-c").arg(ctx.to_string()).arg("-ngl").arg("99");
+    if kv != "f16" {
+        cmd.args(["--cache-type-k", kv, "--cache-type-v", kv]);
+    }
+    cmd.args(extra);
+    eprintln!("exec: {cmd:?}");
+    Err(cmd.exec().into())
 }
