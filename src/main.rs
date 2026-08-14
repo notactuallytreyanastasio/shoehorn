@@ -13,7 +13,7 @@ mod vram;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
-use gguf::{GgmlType, GgufFile, TensorInfo, Value};
+use gguf::{GgmlType, Model, TensorInfo, Value};
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use rayon::prelude::*;
 use std::path::PathBuf;
@@ -58,11 +58,25 @@ struct FitArgs {
     #[arg(long, default_value = "f16")]
     kv: String,
     /// safety margin subtracted from the budget
-    #[arg(long, default_value = "512MiB")]
-    reserve: String,
+    /// (default 512MiB, or 160MiB with --calibrate)
+    #[arg(long)]
+    reserve: Option<String>,
+    /// after writing, measure llama.cpp's real KV/compute allocations and
+    /// re-solve with them, spending the recovered estimate slack on quality
+    #[arg(long)]
+    calibrate: bool,
     /// measure quantization error on all rows instead of a sample
     #[arg(long)]
     exact_errors: bool,
+}
+
+impl FitArgs {
+    fn reserve_bytes(&self) -> Result<u64> {
+        match &self.reserve {
+            Some(s) => parse_size(s),
+            None => Ok(if self.calibrate { 160 << 20 } else { 512 << 20 }),
+        }
+    }
 }
 
 fn kv_bytes_per_element(kv: &str) -> Result<f64> {
@@ -132,8 +146,10 @@ struct FitTuning {
     target: Option<String>,
     #[arg(long, default_value = "f16")]
     kv: String,
-    #[arg(long, default_value = "512MiB")]
-    reserve: String,
+    #[arg(long)]
+    reserve: Option<String>,
+    #[arg(long)]
+    calibrate: bool,
     #[arg(long)]
     exact_errors: bool,
 }
@@ -180,7 +196,7 @@ struct Hyper {
     n_vocab: u64,
 }
 
-fn hyperparams(f: &GgufFile) -> Result<Hyper> {
+fn hyperparams(f: &Model) -> Result<Hyper> {
     let arch = f
         .kv("general.architecture")
         .and_then(Value::as_str)
@@ -228,7 +244,7 @@ fn compute_budget(args: &FitArgs, h: &Hyper) -> Result<Budget> {
         (h.n_layer as f64 * args.ctx as f64 * h.n_kv_head as f64 * (h.key_len + h.val_len) as f64 * kv_elem) as u64;
     let ubatch = 512u64.min(args.ctx);
     let compute_bytes = ubatch * h.n_vocab * 4 + ubatch * h.n_embd * 4 * 8;
-    let reserve = parse_size(&args.reserve)?;
+    let reserve = args.reserve_bytes()?;
     let overhead = kv_bytes + compute_bytes + reserve;
     if overhead >= usable_vram {
         bail!(
@@ -291,8 +307,7 @@ fn dispose(t: &TensorInfo) -> Disposition {
 
 /// Iterate a tensor's rows as f32, calling `f(row_idx, &row, imatrix_slice)`.
 fn for_rows<F: FnMut(usize, &[f32], Option<&[f32]>)>(
-    file: &GgufFile,
-    buf: &[u8],
+    file: &Model,
     t: &TensorInfo,
     im: Option<&[f32]>,
     step: usize,
@@ -305,7 +320,7 @@ fn for_rows<F: FnMut(usize, &[f32], Option<&[f32]>)>(
     } else {
         n_rows
     };
-    let data = file.tensor_data(buf, t);
+    let data = file.tensor_data(t);
     let src_row_bytes = t.ty.row_bytes(t.ne0()) as usize;
     let mut row = vec![0f32; ne0];
     let mut r = 0usize;
@@ -331,9 +346,38 @@ struct Plan {
     entries: Vec<PlanEntry>,
     budget: Budget,
     total_bytes: u64,
+    /// cached measurement results, for cheap re-solves (--calibrate)
+    choices: Vec<solver::TensorChoices>,
+    fixed: Vec<(usize, GgmlType)>,
+    fixed_bytes: u64,
 }
 
-fn build_plan(args: &FitArgs, file: &GgufFile, buf: &[u8]) -> Result<Plan> {
+fn assemble_entries(
+    file: &Model,
+    fixed: &[(usize, GgmlType)],
+    choices: &[solver::TensorChoices],
+    sel: &[usize],
+) -> (Vec<PlanEntry>, u64) {
+    let mut entries: Vec<PlanEntry> = fixed
+        .iter()
+        .map(|&(i, ty)| PlanEntry {
+            tensor_idx: i,
+            ty,
+            bytes: ty.row_bytes(file.tensors[i].ne0()) * file.tensors[i].n_rows(),
+            solved: false,
+        })
+        .collect();
+    let mut solved_bytes = 0u64;
+    for (tc, &ci) in choices.iter().zip(sel) {
+        let c = &tc.cands[ci];
+        solved_bytes += c.bytes;
+        entries.push(PlanEntry { tensor_idx: tc.tensor_idx, ty: c.ty, bytes: c.bytes, solved: true });
+    }
+    entries.sort_by_key(|e| e.tensor_idx);
+    (entries, solved_bytes)
+}
+
+fn build_plan(args: &FitArgs, file: &Model) -> Result<Plan> {
     let h = hyperparams(file)?;
     let budget = compute_budget(args, &h)?;
     let im = match &args.imatrix {
@@ -346,7 +390,7 @@ fn build_plan(args: &FitArgs, file: &GgufFile, buf: &[u8]) -> Result<Plan> {
 
     eprintln!(
         "model: {} | {} tensors | arch {} | ctx {}",
-        fmt_size(buf.len() as u64),
+        fmt_size(file.total_bytes()),
         file.tensors.len(),
         h.arch,
         args.ctx
@@ -412,7 +456,7 @@ fn build_plan(args: &FitArgs, file: &GgufFile, buf: &[u8]) -> Result<Plan> {
                 .par_iter()
                 .map(|&ty| {
                     let mut err = 0f64;
-                    for_rows(file, buf, t, tim, step, |_r, row, ims| {
+                    for_rows(file, t, tim, step, |_r, row, ims| {
                         err += quant::row_error(ty, row, ims);
                     })
                     .unwrap();
@@ -439,25 +483,18 @@ fn build_plan(args: &FitArgs, file: &GgufFile, buf: &[u8]) -> Result<Plan> {
         )
     })?;
 
-    let mut entries: Vec<PlanEntry> = fixed
-        .iter()
-        .map(|&(i, ty)| PlanEntry {
-            tensor_idx: i,
-            ty,
-            bytes: ty.row_bytes(file.tensors[i].ne0()) * file.tensors[i].n_rows(),
-            solved: false,
-        })
-        .collect();
-    for (tc, &ci) in choices.iter().zip(&sel) {
-        let c = &tc.cands[ci];
-        entries.push(PlanEntry { tensor_idx: tc.tensor_idx, ty: c.ty, bytes: c.bytes, solved: true });
-    }
-    entries.sort_by_key(|e| e.tensor_idx);
-    let total_bytes = fixed_bytes + choices.iter().zip(&sel).map(|(t, &c)| t.cands[c].bytes).sum::<u64>();
-    Ok(Plan { entries, budget, total_bytes })
+    let (entries, solved_bytes) = assemble_entries(file, &fixed, &choices, &sel);
+    Ok(Plan {
+        entries,
+        budget,
+        total_bytes: fixed_bytes + solved_bytes,
+        choices,
+        fixed,
+        fixed_bytes,
+    })
 }
 
-fn print_plan(plan: &Plan, file: &GgufFile) {
+fn print_plan(plan: &Plan, file: &Model) {
     println!("\n{:<42} {:>16} {:>7} {:>12} {:>6}", "tensor", "shape", "type", "size", "bpw");
     let mut by_type: std::collections::BTreeMap<String, (usize, u64)> = Default::default();
     for e in &plan.entries {
@@ -528,12 +565,12 @@ fn file_type_code(entries: &[PlanEntry]) -> u32 {
 }
 
 /// Re-encode one tensor to `ty`, parallelizing across row chunks so a single
-/// huge tensor (token_embd) doesn't serialize the tail of the encode phase.
-fn encode_tensor(file: &GgufFile, buf: &[u8], t: &TensorInfo, ty: GgmlType, im: Option<&[f32]>) -> Vec<u8> {
+/// huge tensor (token_embd) doesn't serialize the encode.
+fn encode_tensor(file: &Model, t: &TensorInfo, ty: GgmlType, im: Option<&[f32]>) -> Vec<u8> {
     let ne0 = t.ne0() as usize;
     let n_rows = t.n_rows() as usize;
     let rows_per_mat = if t.dims.len() >= 3 { t.dims[1] as usize } else { n_rows };
-    let src = file.tensor_data(buf, t);
+    let src = file.tensor_data(t);
     let src_rb = t.ty.row_bytes(t.ne0()) as usize;
     let dst_rb = ty.row_bytes(t.ne0()) as usize;
     let mut out = vec![0u8; n_rows * dst_rb];
@@ -554,55 +591,175 @@ fn encode_tensor(file: &GgufFile, buf: &[u8], t: &TensorInfo, ty: GgmlType, im: 
     out
 }
 
+/// Streaming write: one tensor in memory at a time. When `reuse` is given
+/// (a previously written output plus its plan), tensors whose type is
+/// unchanged are copied raw from it instead of re-encoded.
 fn write_quantized(
     out_path: &PathBuf,
     plan: &Plan,
-    file: &GgufFile,
-    buf: &[u8],
+    file: &Model,
     im: &imatrix::Imatrix,
+    reuse: Option<(&Model, &Plan)>,
 ) -> Result<()> {
-    let pb = progress(plan.entries.len() as u64, "encoding");
-    let tensors: Vec<(TensorInfo, Vec<u8>)> = plan
+    let infos: Vec<TensorInfo> = plan
         .entries
-        .par_iter()
-        .progress_with(pb)
+        .iter()
         .map(|e| {
             let t = &file.tensors[e.tensor_idx];
-            let tim = im
-                .get(&t.name)
-                .or_else(|| im.get(t.name.trim_end_matches(".weight")))
-                .map(|v| v.as_slice());
-            let data = if e.ty == t.ty {
-                file.tensor_data(buf, t).to_vec()
-            } else {
-                encode_tensor(file, buf, t, e.ty, tim)
-            };
-            let info = TensorInfo { name: t.name.clone(), dims: t.dims.clone(), ty: e.ty, offset: 0 };
-            (info, data)
+            TensorInfo { name: t.name.clone(), dims: t.dims.clone(), ty: e.ty, offset: 0, shard: 0 }
         })
         .collect();
 
+    // Drop split.* markers: the output is a single merged file, and keeping
+    // split.count would send llama.cpp looking for sibling shards.
     let mut kvs: Vec<(String, Value)> = file
         .kvs
         .iter()
-        .filter(|(k, _)| k != "general.file_type" && k != "general.quantization_version")
+        .filter(|(k, _)| {
+            k != "general.file_type" && k != "general.quantization_version" && !k.starts_with("split.")
+        })
         .cloned()
         .collect();
     kvs.push(("general.file_type".into(), Value::U32(file_type_code(&plan.entries))));
     kvs.push(("general.quantization_version".into(), Value::U32(2)));
 
-    let out = std::fs::File::create(out_path)
-        .with_context(|| format!("creating {}", out_path.display()))?;
-    let written = gguf::write(out, &kvs, &tensors, file.alignment)?;
+    let pb = progress(plan.entries.len() as u64, "encoding");
+    let mut reused = 0usize;
+    let tmp_path = out_path.with_extension("gguf.tmp");
+    let out = std::fs::File::create(&tmp_path)
+        .with_context(|| format!("creating {}", tmp_path.display()))?;
+    let written = gguf::write_streaming(out, &kvs, &infos, file.alignment, |i| {
+        let e = &plan.entries[i];
+        let t = &file.tensors[e.tensor_idx];
+        pb.inc(1);
+        if let Some((old, old_plan)) = reuse
+            && old_plan.entries[i].ty == e.ty
+        {
+            reused += 1;
+            return Ok(old.tensor_data(&old.tensors[i]).to_vec());
+        }
+        if e.ty == t.ty {
+            return Ok(file.tensor_data(t).to_vec());
+        }
+        let tim = im
+            .get(&t.name)
+            .or_else(|| im.get(t.name.trim_end_matches(".weight")))
+            .map(|v| v.as_slice());
+        Ok(encode_tensor(file, t, e.ty, tim))
+    })?;
+    pb.finish_and_clear();
+    std::fs::rename(&tmp_path, out_path)?;
+    if reused > 0 {
+        eprintln!("reused {reused} unchanged tensors from the previous pass");
+    }
     eprintln!("wrote {} ({})", out_path.display(), fmt_size(written));
     Ok(())
 }
 
-fn load_model(path: &PathBuf) -> Result<(memmap2::Mmap, GgufFile)> {
-    let f = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let map = unsafe { memmap2::Mmap::map(&f)? };
-    let g = gguf::read(&map)?;
-    Ok((map, g))
+/// Run llama.cpp briefly on a model and read back its real KV-cache and
+/// compute-buffer allocations from the verbose log.
+fn measure_runtime(model: &PathBuf, ctx: u64, kv: &str) -> Result<(u64, u64)> {
+    eprintln!("calibrating: loading the model in llama.cpp to measure real allocations ...");
+    let mut cmd = std::process::Command::new("llama-cli");
+    cmd.arg("-m")
+        .arg(model)
+        .args(["-ngl", "99", "-c", &ctx.to_string(), "-n", "1", "--temp", "0", "-st", "-v", "-p", "hi"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null());
+    if kv != "f16" {
+        cmd.args(["--cache-type-k", kv, "--cache-type-v", kv]);
+    }
+    let out = cmd.output().context("running llama-cli for calibration")?;
+    let log = String::from_utf8_lossy(&out.stderr);
+    let mib = |line: &str| -> Option<f64> {
+        let (_, rest) = line.split_once("size =")?;
+        rest.trim().strip_suffix("MiB").map(|n| n.trim().parse().ok())?
+    };
+    let mut kv_bytes = None;
+    let mut compute = 0f64;
+    for line in log.lines() {
+        if line.contains("llama_kv_cache: size =") {
+            kv_bytes = line.split_once('(').and_then(|(head, _)| mib(head));
+        } else if line.contains("compute buffer size =") {
+            compute += mib(line).unwrap_or(0.0);
+        }
+    }
+    let kv_bytes = kv_bytes.ok_or_else(|| {
+        anyhow!("could not find KV cache size in llama-cli output (is the model loadable?)")
+    })?;
+    if compute == 0.0 {
+        bail!("could not find compute buffer sizes in llama-cli output");
+    }
+    Ok(((kv_bytes * 1048576.0) as u64, (compute * 1048576.0) as u64))
+}
+
+/// The --calibrate pass: measure real allocations, re-solve with them, and
+/// rewrite the output reusing every unchanged tensor.
+fn calibrate_pass(
+    out_path: &PathBuf,
+    plan: &Plan,
+    args: &FitArgs,
+    file: &Model,
+    im: &imatrix::Imatrix,
+) -> Result<()> {
+    let (kv_meas, compute_meas) = measure_runtime(out_path, args.ctx, &args.kv)?;
+    let reserve = args.reserve_bytes()?;
+    let est_overhead = plan.budget.kv_bytes + plan.budget.compute_bytes;
+    let meas_overhead = kv_meas + compute_meas;
+    eprintln!(
+        "measured: {} KV + {} compute = {} (estimate was {}; {} reclaimed)",
+        fmt_size(kv_meas),
+        fmt_size(compute_meas),
+        fmt_size(meas_overhead),
+        fmt_size(est_overhead),
+        if est_overhead > meas_overhead {
+            fmt_size(est_overhead - meas_overhead)
+        } else {
+            format!("-{}", fmt_size(meas_overhead - est_overhead))
+        },
+    );
+    if meas_overhead + reserve + plan.fixed_bytes >= plan.budget.usable_vram {
+        bail!("measured overhead exceeds the memory envelope; lower --ctx");
+    }
+    let new_weight_budget = plan.budget.usable_vram - meas_overhead - reserve - plan.fixed_bytes;
+    let sel = solver::solve(&plan.choices, new_weight_budget)
+        .ok_or_else(|| anyhow!("re-solve infeasible (this should not happen)"))?;
+    let (entries, solved_bytes) = assemble_entries(file, &plan.fixed, &plan.choices, &sel);
+    let changed = entries
+        .iter()
+        .zip(&plan.entries)
+        .filter(|(a, b)| a.ty != b.ty)
+        .count();
+    let new_plan = Plan {
+        entries,
+        budget: Budget {
+            kv_bytes: kv_meas,
+            compute_bytes: compute_meas,
+            reserve,
+            model_budget: new_weight_budget + plan.fixed_bytes,
+            usable_vram: plan.budget.usable_vram,
+            source: format!("{} + calibration", plan.budget.source),
+        },
+        total_bytes: plan.fixed_bytes + solved_bytes,
+        choices: Vec::new(),
+        fixed: plan.fixed.clone(),
+        fixed_bytes: plan.fixed_bytes,
+    };
+    if changed == 0 {
+        eprintln!("calibration changed no tensor choices; keeping the first pass");
+        return Ok(());
+    }
+    eprintln!(
+        "calibration upgrades {} tensors ({} -> {} weights)",
+        changed,
+        fmt_size(plan.total_bytes),
+        fmt_size(new_plan.total_bytes)
+    );
+    let old = Model::open(out_path)?;
+    let calibrated = out_path.clone();
+    write_quantized(&calibrated, &new_plan, file, im, Some((&old, plan)))?;
+    print_plan(&new_plan, file);
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -616,20 +773,23 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Plan(args) => {
-            let (map, file) = load_model(&args.model)?;
-            let plan = build_plan(&args, &file, &map)?;
+            let file = Model::open(&args.model)?;
+            let plan = build_plan(&args, &file)?;
             print_plan(&plan, &file);
             Ok(())
         }
         Cmd::Quantize { fit, output } => {
-            let (map, file) = load_model(&fit.model)?;
-            let plan = build_plan(&fit, &file, &map)?;
+            let file = Model::open(&fit.model)?;
+            let plan = build_plan(&fit, &file)?;
             print_plan(&plan, &file);
             let im = match &fit.imatrix {
                 Some(p) => imatrix::load(p.to_str().unwrap())?,
                 None => imatrix::Imatrix::new(),
             };
-            write_quantized(&output, &plan, &file, &map, &im)?;
+            write_quantized(&output, &plan, &file, &im, None)?;
+            if fit.calibrate {
+                calibrate_pass(&output, &plan, &fit, &file, &im)?;
+            }
             Ok(())
         }
         Cmd::Run { model, ctx, kv, extra } => serve(&model, ctx, &kv, &extra),
@@ -650,6 +810,7 @@ fn main() -> Result<()> {
                 target: fit.target,
                 kv: fit.kv.clone(),
                 reserve: fit.reserve,
+                calibrate: fit.calibrate,
                 exact_errors: fit.exact_errors,
             };
             let out_path = output.unwrap_or_else(|| {
@@ -660,14 +821,17 @@ fn main() -> Result<()> {
                     .unwrap_or_else(|| "model".into());
                 PathBuf::from(format!("{stem}-fit.gguf"))
             });
-            let (map, file) = load_model(&args.model)?;
-            let plan = build_plan(&args, &file, &map)?;
+            let file = Model::open(&args.model)?;
+            let plan = build_plan(&args, &file)?;
             print_plan(&plan, &file);
             let im = match &args.imatrix {
                 Some(p) => imatrix::load(p.to_str().unwrap())?,
                 None => imatrix::Imatrix::new(),
             };
-            write_quantized(&out_path, &plan, &file, &map, &im)?;
+            write_quantized(&out_path, &plan, &file, &im, None)?;
+            if args.calibrate {
+                calibrate_pass(&out_path, &plan, &args, &file, &im)?;
+            }
             if do_serve {
                 serve(&out_path, args.ctx, &args.kv, &extra)
             } else {

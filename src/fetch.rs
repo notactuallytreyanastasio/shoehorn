@@ -82,25 +82,40 @@ fn hf_repo(owner: &str, repo: &str) -> Result<Resolved> {
                     .join(", ")
             )
         })?;
-    if model_file.0.contains("-of-") {
-        bail!(
-            "{} is a split GGUF; shoehorn does not read multi-part files yet",
-            model_file.0
-        );
-    }
+    // A split model means downloading every sibling shard; Model::open then
+    // reads them as one. The first shard is what we hand back.
+    let stem = model_file.0.clone();
+    let shard_files: Vec<&(String, u64)> = if let Some((prefix, _)) = stem.split_once("-of-") {
+        let prefix = prefix.rsplit_once('-').map(|(p, _)| p).unwrap_or(&stem);
+        let mut v: Vec<&(String, u64)> = entries
+            .iter()
+            .filter(|(p, _)| p.starts_with(prefix) && p.contains("-of-") && p.ends_with(".gguf"))
+            .collect();
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v
+    } else {
+        vec![model_file]
+    };
 
     let dir = cache_dir()?.join(format!("{owner}__{repo}"));
+    let total: u64 = shard_files.iter().map(|(_, s)| s).sum();
     eprintln!(
-        "fetching {}/{} ({:.1} GB) ...",
+        "fetching {}/{} ({} file(s), {:.1} GB) ...",
         owner,
-        model_file.0,
-        model_file.1 as f64 / 1e9
+        shard_files[0].0,
+        shard_files.len(),
+        total as f64 / 1e9
     );
-    let model = download(
-        &format!("https://huggingface.co/{owner}/{repo}/resolve/main/{}", model_file.0),
-        &dir,
-        &model_file.0,
-    )?;
+    let mut model = None;
+    for (p, _) in &shard_files {
+        let path = download(
+            &format!("https://huggingface.co/{owner}/{repo}/resolve/main/{p}"),
+            &dir,
+            Path::new(p).file_name().unwrap().to_str().unwrap(),
+        )?;
+        model.get_or_insert(path);
+    }
+    let model = model.unwrap();
 
     let imatrix = entries
         .iter()

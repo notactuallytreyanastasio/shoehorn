@@ -204,6 +204,8 @@ pub struct TensorInfo {
     pub ty: GgmlType,
     /// Offset relative to the start of the data section.
     pub offset: u64,
+    /// Which shard of a split model holds this tensor's data.
+    pub shard: usize,
 }
 
 impl TensorInfo {
@@ -238,6 +240,92 @@ impl GgufFile {
         let start = (self.data_start + t.offset) as usize;
         &buf[start..start + t.byte_size() as usize]
     }
+}
+
+/// A model on disk: one GGUF file, or a llama.cpp-style split
+/// (`-00001-of-0000N.gguf`) opened as a single logical model. Owns the mmaps;
+/// tensor offsets are rewritten to be absolute within their shard.
+pub struct Model {
+    shards: Vec<memmap2::Mmap>,
+    pub kvs: Vec<(String, Value)>,
+    pub tensors: Vec<TensorInfo>,
+    pub alignment: u64,
+}
+
+impl Model {
+    pub fn open(path: &std::path::Path) -> Result<Model> {
+        let paths = split_siblings(path)?;
+        let mut shards = Vec::new();
+        let mut kvs = Vec::new();
+        let mut tensors = Vec::new();
+        let mut alignment = DEFAULT_ALIGNMENT;
+        for (si, p) in paths.iter().enumerate() {
+            let f = std::fs::File::open(p).with_context(|| format!("opening {}", p.display()))?;
+            let map = unsafe { memmap2::Mmap::map(&f)? };
+            let g = read(&map).with_context(|| format!("parsing {}", p.display()))?;
+            if si == 0 {
+                kvs = g.kvs;
+                alignment = g.alignment;
+            }
+            for mut t in g.tensors {
+                t.offset += g.data_start; // absolute within this shard
+                t.shard = si;
+                tensors.push(t);
+            }
+            shards.push(map);
+        }
+        if paths.len() > 1 {
+            eprintln!("opened split model: {} shards, {} tensors", paths.len(), tensors.len());
+        }
+        Ok(Model { shards, kvs, tensors, alignment })
+    }
+
+    pub fn kv(&self, key: &str) -> Option<&Value> {
+        self.kvs.iter().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
+    pub fn tensor_data(&self, t: &TensorInfo) -> &[u8] {
+        let start = t.offset as usize;
+        &self.shards[t.shard][start..start + t.byte_size() as usize]
+    }
+
+    pub fn total_bytes(&self) -> u64 {
+        self.shards.iter().map(|s| s.len() as u64).sum()
+    }
+}
+
+/// For `x-00001-of-0000N.gguf`, return all N shard paths; otherwise just `path`.
+fn split_siblings(path: &std::path::Path) -> Result<Vec<std::path::PathBuf>> {
+    let name = path.file_name().map(|s| s.to_string_lossy()).unwrap_or_default().into_owned();
+    let Some(caps) = name
+        .strip_suffix(".gguf")
+        .and_then(|s| s.rsplit_once("-of-"))
+        .and_then(|(head, count)| {
+            let (stem, no) = head.rsplit_once('-')?;
+            let no: usize = no.parse().ok().filter(|_| no.len() == 5)?;
+            let count: usize = count.parse().ok().filter(|_| count.len() == 5)?;
+            Some((stem.to_string(), no, count))
+        })
+    else {
+        return Ok(vec![path.to_path_buf()]);
+    };
+    let (stem, no, count) = caps;
+    if count <= 1 {
+        return Ok(vec![path.to_path_buf()]);
+    }
+    if no != 1 {
+        bail!("open the first shard of a split model (…-00001-of-{count:05}.gguf)");
+    }
+    let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut out = Vec::with_capacity(count);
+    for i in 1..=count {
+        let p = dir.join(format!("{stem}-{i:05}-of-{count:05}.gguf"));
+        if !p.exists() {
+            bail!("missing shard {}", p.display());
+        }
+        out.push(p);
+    }
+    Ok(out)
 }
 
 struct Reader<'a> {
@@ -323,7 +411,7 @@ pub fn read(buf: &[u8]) -> Result<GgufFile> {
         }
         let ty = GgmlType::from_u32(r.u32()?);
         let offset = r.u64()?;
-        tensors.push(TensorInfo { name, dims, ty, offset });
+        tensors.push(TensorInfo { name, dims, ty, offset, shard: 0 });
     }
 
     let alignment = kvs
@@ -367,18 +455,20 @@ fn write_value<W: Write>(w: &mut W, v: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Write a GGUF v3 file. `tensors` supplies (info, data) pairs; infos' offsets
-/// are recomputed here and need not be pre-set.
-pub fn write<W: Write>(
+/// Write a GGUF v3 file with bounded memory: tensor sizes are known from the
+/// infos, so the header goes out first and `produce(i)` supplies each tensor's
+/// data in order, to be written and dropped immediately.
+pub fn write_streaming<W: Write, F: FnMut(usize) -> Result<Vec<u8>>>(
     out: W,
     kvs: &[(String, Value)],
-    tensors: &[(TensorInfo, Vec<u8>)],
+    infos: &[TensorInfo],
     alignment: u64,
+    mut produce: F,
 ) -> Result<u64> {
     let mut w = BufWriter::with_capacity(1 << 20, out);
     w.write_all(&GGUF_MAGIC.to_le_bytes())?;
     w.write_all(&3u32.to_le_bytes())?;
-    w.write_all(&(tensors.len() as u64).to_le_bytes())?;
+    w.write_all(&(infos.len() as u64).to_le_bytes())?;
     w.write_all(&(kvs.len() as u64).to_le_bytes())?;
 
     for (k, v) in kvs {
@@ -387,24 +477,16 @@ pub fn write<W: Write>(
         write_value(&mut w, v)?;
     }
 
-    // Assign aligned offsets in order.
+    // Assign aligned offsets in order from the known byte sizes.
     let mut offset = 0u64;
-    let mut offsets = Vec::with_capacity(tensors.len());
-    for (info, data) in tensors {
+    let mut offsets = Vec::with_capacity(infos.len());
+    for info in infos {
         offset = offset.div_ceil(alignment) * alignment;
         offsets.push(offset);
-        assert_eq!(
-            data.len() as u64,
-            info.byte_size(),
-            "tensor {} data size mismatch: {} vs {}",
-            info.name,
-            data.len(),
-            info.byte_size()
-        );
-        offset += data.len() as u64;
+        offset += info.byte_size();
     }
 
-    for ((info, _), off) in tensors.iter().zip(&offsets) {
+    for (info, off) in infos.iter().zip(&offsets) {
         write_string(&mut w, &info.name)?;
         w.write_all(&(info.dims.len() as u32).to_le_bytes())?;
         for d in &info.dims {
@@ -424,7 +506,7 @@ pub fn write<W: Write>(
             counter.write_all(&v.type_id().to_le_bytes())?;
             write_value(&mut counter, v)?;
         }
-        for (info, _) in tensors {
+        for info in infos {
             write_string(&mut counter, &info.name)?;
             counter.write_all(&[0u8; 4])?;
             for _ in &info.dims {
@@ -438,12 +520,21 @@ pub fn write<W: Write>(
     w.write_all(&vec![0u8; (data_start - header_len) as usize])?;
 
     let mut pos = 0u64;
-    for ((_, data), off) in tensors.iter().zip(&offsets) {
+    for (i, (info, off)) in infos.iter().zip(&offsets).enumerate() {
         if *off > pos {
             w.write_all(&vec![0u8; (*off - pos) as usize])?;
             pos = *off;
         }
-        w.write_all(data)?;
+        let data = produce(i)?;
+        assert_eq!(
+            data.len() as u64,
+            info.byte_size(),
+            "tensor {} data size mismatch: {} vs {}",
+            info.name,
+            data.len(),
+            info.byte_size()
+        );
+        w.write_all(&data)?;
         pos += data.len() as u64;
     }
     w.flush()?;
