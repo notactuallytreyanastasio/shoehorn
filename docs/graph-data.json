@@ -3871,6 +3871,61 @@
       "created_at": "2026-08-13T23:11:01.495281-04:00",
       "updated_at": "2026-08-13T23:11:01.495281-04:00",
       "metadata_json": "{\"branch\":\"master\",\"commit\":\"0ffbc78\",\"confidence\":95}"
+    },
+    {
+      "id": 365,
+      "change_id": "e33292ab-fcd2-46d1-9fa1-678cf6a73176",
+      "node_type": "goal",
+      "title": "Calibrated budgets, split-GGUF + streaming writes, MoE validation on Qwen3-30B-A3B",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-14T07:02:42.366778-04:00",
+      "updated_at": "2026-08-14T07:02:42.366778-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90,\"prompt\":\"lets do 1 and 2 and then get a MoE model going too -- i only have 65gb free on this mac tho\"}"
+    },
+    {
+      "id": 366,
+      "change_id": "890e9e08-5a0c-4372-89ec-8878fbac4302",
+      "node_type": "outcome",
+      "title": "Streaming writer, split reader, calibrate all verified byte-identical/working; 220MiB reclaimed on 0.6B",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-14T07:10:03.863424-04:00",
+      "updated_at": "2026-08-14T07:10:03.863424-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"commit\":\"cefac24\",\"confidence\":95}"
+    },
+    {
+      "id": 367,
+      "change_id": "e0e0e867-f106-48ac-91c6-70b219126066",
+      "node_type": "action",
+      "title": "30B-A3B MoE downloads complete (61GB split + legacy imatrix); running plan then calibrated quantize",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-14T09:31:03.400279-04:00",
+      "updated_at": "2026-08-14T09:31:03.400279-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90}"
+    },
+    {
+      "id": 368,
+      "change_id": "0f812cc7-e63c-43b4-b19e-f7550f5ca2fe",
+      "node_type": "outcome",
+      "title": "30B MoE first-pass fit validated: 0B slack solve at 4.75bpw, coherent gen at 50.6 t/s; calibrate ENOSPC handled gracefully (fix shipped)",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-14T09:47:23.146015-04:00",
+      "updated_at": "2026-08-14T09:47:23.146015-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":95}"
+    },
+    {
+      "id": 369,
+      "change_id": "1ed5ba11-a0e2-45f4-a065-238f4efbbf5b",
+      "node_type": "outcome",
+      "title": "MoE e2e complete: PPL 6.91 at 50.6 t/s, 0B slack; docs pushed",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-14T09:50:18.518270-04:00",
+      "updated_at": "2026-08-14T09:50:18.518270-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"commit\":\"1e69af6\",\"confidence\":95}"
     }
   ],
   "edges": [
@@ -7635,6 +7690,61 @@
       "weight": 1.0,
       "rationale": "Polish complete",
       "created_at": "2026-08-13T23:11:01.502954-04:00"
+    },
+    {
+      "id": 356,
+      "from_node_id": 349,
+      "to_node_id": 365,
+      "from_change_id": "af7da320-3959-418e-b519-5fc3737edb30",
+      "to_change_id": "e33292ab-fcd2-46d1-9fa1-678cf6a73176",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Next phase",
+      "created_at": "2026-08-14T07:02:42.374557-04:00"
+    },
+    {
+      "id": 357,
+      "from_node_id": 365,
+      "to_node_id": 366,
+      "from_change_id": "e33292ab-fcd2-46d1-9fa1-678cf6a73176",
+      "to_change_id": "890e9e08-5a0c-4372-89ec-8878fbac4302",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Core features shipped",
+      "created_at": "2026-08-14T07:10:03.871283-04:00"
+    },
+    {
+      "id": 358,
+      "from_node_id": 365,
+      "to_node_id": 367,
+      "from_change_id": "e33292ab-fcd2-46d1-9fa1-678cf6a73176",
+      "to_change_id": "e0e0e867-f106-48ac-91c6-70b219126066",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "MoE validation begins",
+      "created_at": "2026-08-14T09:31:03.430977-04:00"
+    },
+    {
+      "id": 359,
+      "from_node_id": 367,
+      "to_node_id": 368,
+      "from_change_id": "e0e0e867-f106-48ac-91c6-70b219126066",
+      "to_change_id": "0f812cc7-e63c-43b4-b19e-f7550f5ca2fe",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Generation validated",
+      "created_at": "2026-08-14T09:47:23.157936-04:00"
+    },
+    {
+      "id": 360,
+      "from_node_id": 368,
+      "to_node_id": 369,
+      "from_change_id": "0f812cc7-e63c-43b4-b19e-f7550f5ca2fe",
+      "to_change_id": "1ed5ba11-a0e2-45f4-a065-238f4efbbf5b",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "Phase complete",
+      "created_at": "2026-08-14T09:50:18.532217-04:00"
     }
   ],
   "documents": [

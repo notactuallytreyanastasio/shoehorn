@@ -1,5 +1,21 @@
 [
   {
+    "hash": "1e69af6b2c8a253771599871f3bd9cb982c5df73",
+    "short_hash": "1e69af6",
+    "author": "Bobby Grayson",
+    "date": "2026-08-14T09:50:17-04:00",
+    "message": "docs: Qwen3-30B-A3B MoE validation results\n\nSplit 61GB BF16 source, real 17.76GiB budget, q8_0 KV: 16.88GiB weight\nbudget filled to 0 bytes of slack at 4.75bpw. Solver independently\ndiscovers the MoE mix structure (IQ2/IQ3 experts, Q5K/Q6K attention).\nPPL 6.91 held-out, ties the dense 14B fit at 2.2x the speed (50.6\ntok/s). Strongest measured configuration for a 24GB Mac.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+    "files_changed": 2
+  },
+  {
+    "hash": "cefac24b6a217ca9d11fd834a4a1ac3fcff07f15",
+    "short_hash": "cefac24",
+    "author": "Bobby Grayson",
+    "date": "2026-08-14T07:10:02-04:00",
+    "message": "core: streaming writes, split-GGUF reading, --calibrate measured budgets\n\nWriter streams one tensor at a time (offsets precomputed from known\nsizes), so output size no longer bounds RAM; verified byte-identical.\nModel::open reads llama.cpp-style -0000N-of-0000M shards as one model,\nstrips split.* markers on write, and fetch downloads all shards;\nquantizing from a 3-shard split reproduces the single-file output\nbyte-for-byte. --calibrate loads the first output in llama.cpp, parses\nreal KV/compute allocations from the verbose log, re-solves, and\nrewrites reusing unchanged tensors: on the 0.6B it reclaims 220 MiB of\nestimate slack (12.3 -> 15.4 bpw in the same envelope).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+    "files_changed": 3
+  },
+  {
     "hash": "0ffbc788eaa9b81f25f563c2ec126ec64cd10a0e",
     "short_hash": "0ffbc78",
     "author": "Bobby Grayson",
