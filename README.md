@@ -13,6 +13,15 @@ Every spare megabyte goes where the importance matrix says it buys the most
 model quality.
 
 ```
+$ shoehorn fit unsloth/Qwen3-4B-GGUF --serve
+```
+
+That one command finds and downloads the BF16 GGUF from Hugging Face, picks
+up the repo's imatrix (or generates one locally), solves the quant mix for
+your machine, writes the file, and launches llama-server on it. The pieces
+are also available separately:
+
+```
 $ shoehorn vram
 Apple M4 Pro: 17.76 GiB usable for GPU working set
 
@@ -50,12 +59,21 @@ doubles as an independent correctness oracle.
 
 ## Quick start
 
-Prerequisites: a Rust toolchain, and llama.cpp (`brew install llama.cpp`) for
-generating imatrices and for `shoehorn run`.
+```sh
+brew install llama.cpp     # inference backend + imatrix generation
+cargo install --path .     # or: cargo build --release
+
+shoehorn fit unsloth/Qwen3-4B-GGUF --serve
+```
+
+`fit` does the whole pipeline: finds the BF16 GGUF in the repo, downloads it
+to `~/.cache/shoehorn` (resumable), picks up or generates an imatrix, solves
+the mix for your machine, writes `<model>-fit.gguf`, and serves it. macOS on
+Apple Silicon is the supported platform; `--budget`/`--target` work anywhere.
+
+Doing the steps by hand instead:
 
 ```sh
-cargo build --release
-
 # 1. Get a BF16 (or F16/F32) GGUF of your model.
 #    Most HF quant repos (unsloth, bartowski, ggml-org) publish one.
 
@@ -71,7 +89,8 @@ shoehorn run -m fitted.gguf --ctx 8192
 
 `shoehorn plan` takes the same flags as `quantize` without `-o` and prints the
 solved per-tensor mix without writing anything, so you can preview what a
-budget implies before spending the encode time.
+budget implies before spending the encode time. `./demo/run.sh` reproduces
+the full size/quality ladder on a small model in a few minutes.
 
 ## How it works
 
@@ -221,13 +240,19 @@ setup, `--budget` and `--reserve` let you dial it in precisely.
 ## CLI reference
 
 ```
+shoehorn fit       <path | owner/repo | url> [-i <imatrix>] [fit flags] [-o out.gguf] [--serve]
 shoehorn plan      -m <bf16.gguf> [-i <imatrix>] [fit flags]
 shoehorn quantize  -m <bf16.gguf> [-i <imatrix>] [fit flags] -o <out.gguf>
-shoehorn run       -m <model.gguf> [--ctx N] [-- <llama-server args...>]
+shoehorn run       -m <model.gguf> [--ctx N] [--kv q8_0] [-- <llama-server args...>]
 shoehorn vram
 ```
 
-Fit flags, shared by `plan` and `quantize`:
+`fit` accepts a local path, a Hugging Face repo id (it picks the BF16 file,
+refuses split GGUFs, and grabs any imatrix in the repo), or a direct URL.
+Downloads land in `~/.cache/shoehorn` and resume if interrupted. Without an
+imatrix, it generates one with `llama-imatrix` when the model fits the GPU.
+
+Fit flags, shared by `fit`, `plan`, and `quantize`:
 
 | flag | default | meaning |
 |---|---|---|
@@ -235,6 +260,8 @@ Fit flags, shared by `plan` and `quantize`:
 | `-i, --imatrix` | none | imatrix file, legacy binary or GGUF-based; omitting it warns and falls back to activation-agnostic weighting |
 | `--ctx` | 8192 | context length the KV budget is computed for |
 | `--budget` | Metal probe | total memory envelope: `18GiB`, `800MB`, `4.5G`, or plain bytes |
+| `--target` | — | budget for a different Mac by RAM size, e.g. `--target 16GB` (approximates the macOS working-set limit as 74% of RAM) |
+| `--kv` | f16 | KV cache type to budget for and run with (`f16`, `q8_0`, `q4_0`); `q8_0` roughly halves the KV term, freeing that memory for weights |
 | `--reserve` | 512MiB | safety margin subtracted from the envelope |
 | `--exact-errors` | off | score every row instead of a 128-row sample per tensor |
 
