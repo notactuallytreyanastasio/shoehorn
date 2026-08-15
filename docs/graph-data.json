@@ -3926,6 +3926,94 @@
       "created_at": "2026-08-14T09:50:18.518270-04:00",
       "updated_at": "2026-08-14T09:50:18.518270-04:00",
       "metadata_json": "{\"branch\":\"master\",\"commit\":\"1e69af6\",\"confidence\":95}"
+    },
+    {
+      "id": 370,
+      "change_id": "b18c664e-8dad-4875-b945-6ad8b29103a6",
+      "node_type": "goal",
+      "title": "Add a GUI for non-expert users and support non-Apple hardware",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T00:41:33.293795-04:00",
+      "updated_at": "2026-08-15T00:41:33.293795-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90,\"prompt\":\"can we add a nice GUI on top of all this so that the normal boys can play without any big confusion? While we're at it can we add support for non-apple hardware, as a treat?\"}"
+    },
+    {
+      "id": 371,
+      "change_id": "64d06e90-8034-462f-beaa-2a5ce7d20739",
+      "node_type": "option",
+      "title": "GUI as native app (Tauri/egui)",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T00:41:33.310588-04:00",
+      "updated_at": "2026-08-15T00:41:33.310588-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":40}"
+    },
+    {
+      "id": 372,
+      "change_id": "b1e2e2c2-b459-4950-b911-e471cef569bc",
+      "node_type": "option",
+      "title": "GUI as local web UI served by 'shoehorn ui' subcommand",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T00:41:33.327297-04:00",
+      "updated_at": "2026-08-15T00:41:33.327297-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90}"
+    },
+    {
+      "id": 373,
+      "change_id": "73d7b60d-b0d0-4c5e-bcdc-bf452e1872cd",
+      "node_type": "decision",
+      "title": "Local web UI via tiny embedded HTTP server; cfg-gate Metal + add NVML probe for CUDA on Linux/Windows",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T00:41:33.343366-04:00",
+      "updated_at": "2026-08-15T00:41:33.343366-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":88}"
+    },
+    {
+      "id": 374,
+      "change_id": "5df82790-6b55-4d92-8ad8-300228126ca7",
+      "node_type": "action",
+      "title": "Cross-platform: cfg-gate metal dep, NVML probe on non-macOS, Windows-safe serve()",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T00:41:38.372987-04:00",
+      "updated_at": "2026-08-15T00:41:38.372987-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":85}"
+    },
+    {
+      "id": 375,
+      "change_id": "524b1084-67dc-4ad1-a1fa-5dcc59490cc3",
+      "node_type": "action",
+      "title": "Add 'shoehorn ui' subcommand: embedded HTTP server + single-page UI wrapping the fit pipeline as a subprocess",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T00:41:38.389249-04:00",
+      "updated_at": "2026-08-15T00:41:38.389249-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":85}"
+    },
+    {
+      "id": 376,
+      "change_id": "c71c7e21-d5a7-4a07-b445-521074b81ba2",
+      "node_type": "outcome",
+      "title": "Cross-platform shipped: metal cfg-gated to macOS, NVML free-VRAM probe elsewhere, Windows-safe serve, non-fatal sh fallback; Linux+Windows targets compile clean, CI matrix +ubuntu",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T00:52:34.756516-04:00",
+      "updated_at": "2026-08-15T00:52:34.756516-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 377,
+      "change_id": "e687e7d8-6979-4500-a1c0-21b0498a5ea5",
+      "node_type": "outcome",
+      "title": "shoehorn ui shipped: tiny_http server + embedded page, fit runs as streamed subprocess; validated e2e on 0.6B (99.998% budget, chat reply through llama-server), tape-gauge UI screenshot-verified",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T00:52:34.775389-04:00",
+      "updated_at": "2026-08-15T00:52:34.775389-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
     }
   ],
   "edges": [
@@ -7745,6 +7833,83 @@
       "weight": 1.0,
       "rationale": "Phase complete",
       "created_at": "2026-08-14T09:50:18.532217-04:00"
+    },
+    {
+      "id": 361,
+      "from_node_id": 370,
+      "to_node_id": 371,
+      "from_change_id": "b18c664e-8dad-4875-b945-6ad8b29103a6",
+      "to_change_id": "64d06e90-8034-462f-beaa-2a5ce7d20739",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "possible GUI approach",
+      "created_at": "2026-08-15T00:41:38.337476-04:00"
+    },
+    {
+      "id": 362,
+      "from_node_id": 370,
+      "to_node_id": 372,
+      "from_change_id": "b18c664e-8dad-4875-b945-6ad8b29103a6",
+      "to_change_id": "b1e2e2c2-b459-4950-b911-e471cef569bc",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "possible GUI approach",
+      "created_at": "2026-08-15T00:41:38.347846-04:00"
+    },
+    {
+      "id": 363,
+      "from_node_id": 372,
+      "to_node_id": 373,
+      "from_change_id": "b1e2e2c2-b459-4950-b911-e471cef569bc",
+      "to_change_id": "73d7b60d-b0d0-4c5e-bcdc-bf452e1872cd",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "chosen: reuses Rust pipeline, no packaging, works cross-platform",
+      "created_at": "2026-08-15T00:41:38.356075-04:00"
+    },
+    {
+      "id": 364,
+      "from_node_id": 373,
+      "to_node_id": 374,
+      "from_change_id": "73d7b60d-b0d0-4c5e-bcdc-bf452e1872cd",
+      "to_change_id": "5df82790-6b55-4d92-8ad8-300228126ca7",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "implement platform support first so the UI works everywhere",
+      "created_at": "2026-08-15T00:41:41.312455-04:00"
+    },
+    {
+      "id": 365,
+      "from_node_id": 373,
+      "to_node_id": 375,
+      "from_change_id": "73d7b60d-b0d0-4c5e-bcdc-bf452e1872cd",
+      "to_change_id": "524b1084-67dc-4ad1-a1fa-5dcc59490cc3",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "implement the UI on top of the cross-platform probe",
+      "created_at": "2026-08-15T00:41:41.322226-04:00"
+    },
+    {
+      "id": 366,
+      "from_node_id": 374,
+      "to_node_id": 376,
+      "from_change_id": "5df82790-6b55-4d92-8ad8-300228126ca7",
+      "to_change_id": "c71c7e21-d5a7-4a07-b445-521074b81ba2",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "verified by cross-target cargo check + clippy + tests",
+      "created_at": "2026-08-15T00:52:38.502376-04:00"
+    },
+    {
+      "id": 367,
+      "from_node_id": 375,
+      "to_node_id": 377,
+      "from_change_id": "524b1084-67dc-4ad1-a1fa-5dcc59490cc3",
+      "to_change_id": "e687e7d8-6979-4500-a1c0-21b0498a5ea5",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "verified live: API-driven fit, screenshots, chat completion",
+      "created_at": "2026-08-15T00:52:38.512695-04:00"
     }
   ],
   "documents": [
