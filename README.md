@@ -43,6 +43,7 @@ doubles as an independent correctness oracle.
 ## Contents
 
 - [Quick start](#quick-start)
+- [The web UI](#the-web-ui)
 - [How it works](#how-it-works)
 - [The math](#the-math)
 - [Supported formats](#supported-formats)
@@ -59,12 +60,48 @@ doubles as an independent correctness oracle.
 
 ## Quick start
 
+shoehorn needs two things installed: llama.cpp (inference backend + imatrix
+generation) and a Rust toolchain to build shoehorn itself.
+
+**macOS (Apple Silicon)**
+
 ```sh
-brew install llama.cpp     # inference backend + imatrix generation
+brew install llama.cpp
 cargo install --path .     # or: cargo build --release
 
 shoehorn fit unsloth/Qwen3-4B-GGUF --serve
 ```
+
+**Linux (NVIDIA)**
+
+```sh
+# llama.cpp with CUDA — build from source (or grab a -cuda release binary
+# from https://github.com/ggml-org/llama.cpp/releases and put it on PATH):
+git clone https://github.com/ggml-org/llama.cpp
+cmake -S llama.cpp -B llama.cpp/build -DGGML_CUDA=ON
+cmake --build llama.cpp/build --config Release -j
+sudo cmake --install llama.cpp/build
+
+cargo install --path .
+shoehorn fit unsloth/Qwen3-4B-GGUF --serve
+```
+
+The VRAM probe reads the first NVIDIA device's free memory through NVML,
+which ships with the regular driver — nothing extra to install. AMD and
+Intel GPUs aren't probed yet; pass `--budget`.
+
+**Windows (NVIDIA)**
+
+1. Install Rust via [rustup](https://rustup.rs), then `cargo install --path .`
+2. Download a `-cuda` llama.cpp zip from the
+   [releases page](https://github.com/ggml-org/llama.cpp/releases), unzip it,
+   and add the folder to `PATH`.
+3. `shoehorn fit unsloth/Qwen3-4B-GGUF --serve`
+
+Windows support is compile-tested but not yet field-tested. One known gap:
+auto-generating an imatrix is skipped there (the calibration text is built
+from man pages), so fit a repo that publishes one — it's picked up
+automatically — or pass `-i` yourself.
 
 `fit` does the whole pipeline: finds the BF16 GGUF in the repo, downloads it
 to `~/.cache/shoehorn` (resumable), picks up or generates an imatrix, solves
@@ -72,9 +109,7 @@ the mix for your machine, writes `<model>-fit.gguf`, and serves it. macOS on
 Apple Silicon and Linux/Windows with an NVIDIA GPU are probed automatically;
 `--budget`/`--target` work anywhere.
 
-Prefer buttons to flags? `shoehorn ui` opens a local web page that runs the
-same pipeline: it shows your machine's measured budget, takes a model name,
-and ends at a **Chat with it** button.
+Prefer buttons to flags? See [the web UI](#the-web-ui).
 
 Doing the steps by hand instead:
 
@@ -96,6 +131,30 @@ shoehorn run -m fitted.gguf --ctx 8192
 solved per-tensor mix without writing anything, so you can preview what a
 budget implies before spending the encode time. `./demo/run.sh` reproduces
 the full size/quality ladder on a small model in a few minutes.
+
+## The web UI
+
+```sh
+shoehorn ui
+```
+
+opens a local page (default `http://127.0.0.1:7788`) that drives the same
+pipeline with no flags: it shows the measured budget for your machine, takes
+a model name, and runs the fit with the log streamed into the page.
+
+![the fit form: your machine's measurement, a model field, and one button](docs/ui-idle.png)
+
+While the fit runs, the budget renders as a tape measure — weights grow from
+the left while the fixed costs (KV cache, compute buffers, safety margin)
+hold the right edge. When it lands, **Chat with it** serves the result with
+llama-server and opens its chat page once the model is warm.
+
+![a finished fit: the tape-measure gauge at 99.998% used, and a Chat with it button](docs/ui-fitted.png)
+
+The advanced knobs (KV cache type, budget override, `--calibrate`) are under
+"More options". The page runs `shoehorn fit` as a subprocess and streams its
+output, so it can't drift from what the CLI does — everything the CLI would
+have printed is under "Show the work".
 
 ## How it works
 
