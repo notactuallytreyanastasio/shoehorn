@@ -69,7 +69,12 @@ shoehorn fit unsloth/Qwen3-4B-GGUF --serve
 `fit` does the whole pipeline: finds the BF16 GGUF in the repo, downloads it
 to `~/.cache/shoehorn` (resumable), picks up or generates an imatrix, solves
 the mix for your machine, writes `<model>-fit.gguf`, and serves it. macOS on
-Apple Silicon is the supported platform; `--budget`/`--target` work anywhere.
+Apple Silicon and Linux/Windows with an NVIDIA GPU are probed automatically;
+`--budget`/`--target` work anywhere.
+
+Prefer buttons to flags? `shoehorn ui` opens a local web page that runs the
+same pipeline: it shows your machine's measured budget, takes a model name,
+and ends at a **Chat with it** button.
 
 Doing the steps by hand instead:
 
@@ -245,6 +250,7 @@ shoehorn plan      -m <bf16.gguf> [-i <imatrix>] [fit flags]
 shoehorn quantize  -m <bf16.gguf> [-i <imatrix>] [fit flags] -o <out.gguf>
 shoehorn run       -m <model.gguf> [--ctx N] [--kv q8_0] [-- <llama-server args...>]
 shoehorn vram
+shoehorn ui        [--port 7788] [--no-open]
 ```
 
 `fit` accepts a local path, a Hugging Face repo id (it picks the BF16 file,
@@ -259,8 +265,8 @@ Fit flags, shared by `fit`, `plan`, and `quantize`:
 | `-m, --model` | required | BF16/F16/F32 source GGUF (already-quantized sources also read, via the in-crate decoders) |
 | `-i, --imatrix` | none | imatrix file, legacy binary or GGUF-based; omitting it warns and falls back to activation-agnostic weighting |
 | `--ctx` | 8192 | context length the KV budget is computed for |
-| `--budget` | Metal probe | total memory envelope: `18GiB`, `800MB`, `4.5G`, or plain bytes |
-| `--target` | — | budget for a different Mac by RAM size, e.g. `--target 16GB` (approximates the macOS working-set limit as 74% of RAM) |
+| `--budget` | GPU probe | total memory envelope: `18GiB`, `800MB`, `4.5G`, or plain bytes |
+| `--target` | — | budget for a different unified-memory machine by RAM size, e.g. `--target 16GB` (approximates the macOS working-set limit as 74% of RAM) |
 | `--kv` | f16 | KV cache type to budget for and run with (`f16`, `q8_0`, `q4_0`); `q8_0` roughly halves the KV term, freeing that memory for weights |
 | `--reserve` | 512MiB | safety margin subtracted from the envelope |
 | `--exact-errors` | off | score every row instead of a 128-row sample per tensor |
@@ -272,7 +278,14 @@ slack in bytes, and the projected total VRAM picture at the target context.
 `run` execs `llama-server -m <model> -c <ctx> -ngl 99`; everything after `--`
 is passed through (`--port`, `--api-key`, ...).
 
-`vram` prints the detected device and its recommended working-set size.
+`vram` prints the detected device and its usable GPU memory: Metal's
+recommended working-set size on macOS, NVML's free VRAM on the first NVIDIA
+device elsewhere.
+
+`ui` serves a local web page (and opens it) that drives the whole `fit`
+pipeline as a subprocess: pick a model, watch the budget gauge fill, then
+chat with the result via llama-server. No flags survive contact with it on
+purpose; the advanced knobs live under "More options".
 
 ## Imatrix files
 
@@ -383,8 +396,10 @@ src/quant_iq.rs  the 7 IQ codebook encoders + decoders, lattice neighbour search
 src/iq_tables.rs script-extracted lattice/codebook tables (generated file)
 src/imatrix.rs   legacy + GGUF imatrix parsing, weight sanitization
 src/solver.rs    Lagrangian knapsack + greedy top-up
-src/vram.rs      Metal working-set probe
+src/vram.rs      GPU probe: Metal working set (macOS), NVML free VRAM (elsewhere)
 src/main.rs      CLI, budget model, measurement orchestration (rayon)
+src/ui.rs        `shoehorn ui` local web server driving fit as a subprocess
+src/ui.html      the page it serves (embedded at compile time)
 DESIGN.md        the how/why of every decision, in order (D1-D10), gotchas
 docs/            decision-graph export (deciduous)
 ```
@@ -411,8 +426,9 @@ perplexity is strong evidence the encoders are bit-compatible.
   version and flash-attention path; `--reserve` absorbs the difference. A
   `--calibrate` mode that launches llama.cpp once and reads back actual
   allocations would replace the guess with a measurement.
-- The probe is Metal-only. `--budget` works anywhere; a CUDA/NVML probe is
-  straightforward if a Linux target materializes.
+- The probe covers Metal (macOS) and NVML (NVIDIA on Linux/Windows). AMD and
+  Intel GPUs need an explicit `--budget`. On NVIDIA the probe reports the
+  first device's *free* VRAM, so close the big things before fitting.
 - Embedded imatrix stats, attention-sink tensors, and other exotic GGUF
   extras are passed through untouched but not exploited.
 

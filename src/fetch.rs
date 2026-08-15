@@ -178,14 +178,18 @@ pub fn auto_imatrix(model: &Path, vram: Option<u64>) -> Result<Option<PathBuf>> 
     }
     let calib = cache_dir()?.join("calibration.txt");
     if !calib.exists() {
-        let text = Command::new("sh")
+        // Best-effort: no sh / no man pages (e.g. Windows, slim containers)
+        // just means no auto-imatrix, not a failed fit.
+        let stdout = Command::new("sh")
             .args(["-c", "(man bash | col -b; man zshexpn | col -b) 2>/dev/null"])
-            .output()?;
-        if text.stdout.len() < 100_000 {
+            .output()
+            .map(|o| o.stdout)
+            .unwrap_or_default();
+        if stdout.len() < 100_000 {
             eprintln!("could not build calibration text; continuing without an imatrix");
             return Ok(None);
         }
-        std::fs::write(&calib, &text.stdout)?;
+        std::fs::write(&calib, &stdout)?;
     }
     eprintln!("generating imatrix (one-time, a few minutes) ...");
     let status = Command::new("llama-imatrix")

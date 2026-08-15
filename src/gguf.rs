@@ -232,10 +232,6 @@ pub struct GgufFile {
 }
 
 impl GgufFile {
-    pub fn kv(&self, key: &str) -> Option<&Value> {
-        self.kvs.iter().find(|(k, _)| k == key).map(|(_, v)| v)
-    }
-
     pub fn tensor_data<'a>(&self, buf: &'a [u8], t: &TensorInfo) -> &'a [u8] {
         let start = (self.data_start + t.offset) as usize;
         &buf[start..start + t.byte_size() as usize]

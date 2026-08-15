@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shoehorn</title>
+<style>
+  :root {
+    --paper: #ECEEF1;
+    --card: #FBFBFA;
+    --ink: #1C2833;
+    --ink-soft: #5A6572;
+    --seam: #D2D7DD;
+    --tape: #F0C244;
+    --tape-deep: #D9A82A;
+    --tape-ink: #2A2205;
+    --thread: #2F6B52;
+    --stitch: #B23A2E;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, monospace;
+    --display: "Avenir Next", Avenir, Futura, "Century Gothic", "Trebuchet MS", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.55 var(--display);
+    padding: 0 20px 80px;
+  }
+  /* tape edge across the very top of the page */
+  .tape-edge {
+    height: 14px;
+    margin: 0 -20px;
+    background:
+      repeating-linear-gradient(90deg,
+        var(--tape-ink) 0, var(--tape-ink) 1px, transparent 1px, transparent 10px),
+      repeating-linear-gradient(90deg,
+        transparent 0, transparent 49px, var(--tape-ink) 49px, var(--tape-ink) 51px, transparent 51px, transparent 100px),
+      var(--tape);
+    background-size: 100px 45%, 100px 100%, auto;
+    background-repeat: repeat-x;
+    background-position: bottom left, bottom left, 0 0;
+  }
+  main { max-width: 680px; margin: 0 auto; }
+  header { padding: 40px 0 8px; }
+  h1 {
+    font-size: 44px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .tagline { color: var(--ink-soft); margin-top: 2px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--seam);
+    border-radius: 10px;
+    padding: 20px 22px;
+    margin-top: 22px;
+  }
+  .eyebrow {
+    font: 600 11px/1 var(--display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+  }
+  .measure { font-family: var(--mono); font-size: 15px; }
+  .measure strong { font-size: 19px; font-weight: 600; }
+  .warn { color: var(--stitch); margin-top: 8px; font-size: 14px; }
+  label { display: block; font-weight: 600; font-size: 14px; margin: 16px 0 6px; }
+  label:first-of-type { margin-top: 0; }
+  .hint { font-weight: 400; color: var(--ink-soft); }
+  input[type=text], select {
+    width: 100%;
+    font: 15px var(--mono);
+    color: var(--ink);
+    background: #fff;
+    border: 1px solid var(--seam);
+    border-radius: 7px;
+    padding: 10px 12px;
+  }
+  input[type=text]:focus-visible, select:focus-visible, button:focus-visible,
+  summary:focus-visible, a:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; font-size: 14px; color: var(--ink-soft); }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 180px; }
+  .check { display: flex; gap: 8px; align-items: baseline; margin-top: 16px; font-size: 14px; }
+  .check input { accent-color: var(--ink); }
+  .check span { color: var(--ink-soft); }
+  button {
+    font: 600 16px var(--display);
+    border: none;
+    border-radius: 8px;
+    padding: 13px 22px;
+    cursor: pointer;
+  }
+  .primary { background: var(--ink); color: var(--card); }
+  .primary:hover { background: #2B3A48; }
+  .quiet {
+    background: none; border: 1px solid var(--seam); color: var(--ink-soft);
+    padding: 12px 18px;
+  }
+  .actions { display: flex; gap: 12px; margin-top: 22px; align-items: center; }
+  /* ---- the fitting: status, tape gauge, log ---- */
+  #fitting { display: none; }
+  .status { display: flex; gap: 10px; align-items: center; font-family: var(--mono); font-size: 14px; color: var(--ink-soft); min-height: 24px; }
+  .needle {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid var(--tape-deep); border-top-color: transparent;
+    animation: spin 0.9s linear infinite;
+    flex: none;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #gauge { display: none; margin-top: 18px; }
+  .tape-bar {
+    position: relative;
+    height: 46px;
+    border-radius: 5px;
+    overflow: hidden;
+    background: var(--tape);
+    border: 1px solid var(--tape-deep);
+  }
+  /* centimetre ticks over everything */
+  .tape-bar::after {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(90deg,
+        rgba(42,34,5,.55) 0, rgba(42,34,5,.55) 1px, transparent 1px, transparent 8px),
+      repeating-linear-gradient(90deg,
+        transparent 0, transparent 39px, rgba(42,34,5,.7) 39px, rgba(42,34,5,.7) 41px, transparent 41px, transparent 80px);
+    background-size: 80px 30%, 80px 60%;
+    background-repeat: repeat-x;
+    background-position: bottom left, bottom left;
+    pointer-events: none;
+  }
+  .seg { position: absolute; top: 0; bottom: 0; }
+  .seg.weights {
+    background: var(--tape);
+  }
+  .seg.weights.working {
+    background: linear-gradient(90deg, var(--tape) 30%, #F7DA8A 50%, var(--tape) 70%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  .seg.kv { background: #8C93A8; }
+  .seg.compute { background: #B5BAC8; }
+  .seg.reserve {
+    background: repeating-linear-gradient(-45deg, #C9CEDA 0 6px, #DDE0E8 6px 12px);
+  }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 6px 18px;
+    margin-top: 10px;
+    font: 13px var(--mono);
+    color: var(--ink-soft);
+  }
+  .legend b { color: var(--ink); font-weight: 600; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; }
+  #verdict { display: none; font-family: var(--mono); font-size: 15px; margin-top: 14px; }
+  #logbox { margin-top: 16px; }
+  #log {
+    font: 12.5px/1.6 var(--mono);
+    background: var(--ink);
+    color: #C9D2DB;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-top: 10px;
+    max-height: 320px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  /* ---- done / failed ---- */
+  #done { display: none; border-left: 4px solid var(--thread); }
+  #done .measure { margin: 6px 0 14px; }
+  #failed { display: none; border-left: 4px solid var(--stitch); }
+  #failed pre { font: 13px/1.5 var(--mono); white-space: pre-wrap; margin-top: 8px; color: var(--stitch); }
+  footer { margin-top: 40px; font-size: 13px; color: var(--ink-soft); }
+  footer a { color: inherit; }
+  @media (prefers-reduced-motion: reduce) {
+    .needle, .seg.weights.working { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="tape-edge" aria-hidden="true"></div>
+<main>
+  <header>
+    <h1>shoehorn</h1>
+    <p class="tagline">Fits a language model to your machine, megabyte for megabyte.</p>
+  </header>
+
+  <section class="card" id="machine">
+    <div class="eyebrow">Your machine</div>
+    <div class="measure" id="machine-line">taking the measurement&hellip;</div>
+    <div class="warn" id="llama-warn" hidden>llama.cpp isn&rsquo;t installed, so the fitted model can&rsquo;t be run from here.
+      Install it first (macOS: <code>brew install llama.cpp</code>).</div>
+  </section>
+
+  <section class="card">
+    <div class="eyebrow">The fit</div>
+    <label for="model">Model <span class="hint">— a Hugging Face repo, a URL, or a local .gguf</span></label>
+    <input type="text" id="model" list="model-ideas" placeholder="unsloth/Qwen3-4B-GGUF" autocomplete="off" spellcheck="false">
+    <datalist id="model-ideas">
+      <option value="unsloth/Qwen3-0.6B-GGUF">tiny — a quick first try</option>
+      <option value="unsloth/Qwen3-4B-GGUF">small and capable</option>
+      <option value="unsloth/Qwen3-8B-GGUF">a solid daily driver</option>
+      <option value="unsloth/Qwen3-14B-GGUF">for machines with room</option>
+    </datalist>
+
+    <label for="ctx">Conversation room <span class="hint">— longer costs memory that would otherwise buy quality</span></label>
+    <select id="ctx">
+      <option value="4096">4k tokens — short chats</option>
+      <option value="8192" selected>8k tokens — everyday use</option>
+      <option value="16384">16k tokens — long documents</option>
+      <option value="32768">32k tokens — the whole novella</option>
+    </select>
+
+    <details>
+      <summary>More options</summary>
+      <div class="row" style="margin-top:14px">
+        <div>
+          <label for="kv">KV cache</label>
+          <select id="kv">
+            <option value="f16" selected>f16 — full precision</option>
+            <option value="q8_0">q8_0 — smaller, near-lossless</option>
+            <option value="q4_0">q4_0 — smallest</option>
+          </select>
+        </div>
+        <div>
+          <label for="budget">Memory budget <span class="hint">— blank = measured</span></label>
+          <input type="text" id="budget" placeholder="e.g. 12GiB">
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="calibrate">
+        <span>Calibrate: load once in llama.cpp mid-fit and spend the measured slack on quality (slower)</span></label>
+    </details>
+
+    <div class="actions">
+      <button class="primary" id="go">Fit it to my machine</button>
+      <button class="quiet" id="stop" hidden>Stop</button>
+    </div>
+  </section>
+
+  <section class="card" id="fitting">
+    <div class="eyebrow">Fitting</div>
+    <div class="status"><div class="needle" id="needle"></div><div id="status-line">starting&hellip;</div></div>
+    <div id="gauge">
+      <div class="tape-bar" id="tape-bar" role="img" aria-label="memory budget gauge"></div>
+      <div class="legend" id="legend"></div>
+      <div id="verdict"></div>
+    </div>
+    <details id="logbox">
+      <summary>Show the work</summary>
+      <div id="log" aria-live="polite"></div>
+    </details>
+  </section>
+
+  <section class="card" id="done">
+    <div class="eyebrow" style="color:var(--thread)">Fitted</div>
+    <div class="measure" id="done-line"></div>
+    <div class="actions" style="margin-top:6px">
+      <button class="primary" id="chat">Chat with it</button>
+      <span class="hint" id="chat-note"></span>
+    </div>
+  </section>
+
+  <section class="card" id="failed">
+    <div class="eyebrow" style="color:var(--stitch)">That didn&rsquo;t fit</div>
+    <pre id="fail-line"></pre>
+  </section>
+
+  <footer>Command-line version: <code>shoehorn fit &lt;model&gt; --serve</code> &middot;
+    <a href="https://github.com/notactuallytreyanastasio/shoehorn">how the fitting works</a></footer>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let seen = 0, poller = null, budget = null, result = null;
+
+const SIZE = String.raw`([\d.]+)\s*(GiB|MiB|B)\b`;
+const toBytes = (n, unit) => +n * ({ GiB: 2 ** 30, MiB: 2 ** 20, B: 1 }[unit]);
+const fmt = b => b >= 2 ** 30 ? (b / 2 ** 30).toFixed(2) + " GiB"
+             : b >= 2 ** 20 ? (b / 2 ** 20).toFixed(1) + " MiB" : b + " B";
+
+async function info() {
+  try {
+    const r = await (await fetch("/api/info")).json();
+    $("machine-line").innerHTML = r.vram
+      ? `${r.device} &mdash; <strong>${fmt(r.vram)}</strong> usable for the model`
+      : `no probeable GPU found &mdash; set a memory budget under &ldquo;More options&rdquo;`;
+    $("llama-warn").hidden = r.llama;
+  } catch { $("machine-line").textContent = "the shoehorn server went away — restart `shoehorn ui`"; }
+}
+
+$("go").addEventListener("click", async () => {
+  const body = {
+    model: $("model").value || $("model").placeholder,
+    ctx: +$("ctx").value,
+    kv: $("kv").value,
+    budget: $("budget").value,
+    calibrate: $("calibrate").checked,
+  };
+  const r = await fetch("/api/fit", { method: "POST", body: JSON.stringify(body) });
+  if (!r.ok) { alert((await r.json()).error); return; }
+  startWatching();
+});
+
+function startWatching() {
+  seen = 0; budget = null; result = null;
+  $("log").textContent = "";
+  $("gauge").style.display = "none";
+  $("verdict").style.display = "none";
+  $("done").style.display = "none";
+  $("failed").style.display = "none";
+  $("fitting").style.display = "block";
+  $("needle").style.display = "block";
+  $("go").disabled = true;
+  $("stop").hidden = false;
+  clearInterval(poller);
+  poller = setInterval(poll, 700);
+}
+
+$("stop").addEventListener("click", () => fetch("/api/cancel", { method: "POST" }));
+
+async function poll() {
+  let r;
+  try { r = await (await fetch(`/api/log?from=${seen}`)).json(); }
+  catch { return; }
+  seen = r.total;
+  for (const line of r.lines) ingest(line);
+  if (r.lines.length) {
+    const last = r.lines[r.lines.length - 1];
+    $("status-line").textContent = last.length > 90 ? last.slice(0, 90) + "…" : last;
+    if ($("logbox").open) $("log").scrollTop = $("log").scrollHeight;
+  }
+  if (r.state === "running") return;
+  clearInterval(poller);
+  $("go").disabled = false;
+  $("stop").hidden = true;
+  $("needle").style.display = "none";
+  if (r.state === "done") {
+    $("status-line").textContent = "done";
+    document.querySelector(".seg.weights")?.classList.remove("working");
+    $("done").style.display = "block";
+    $("done-line").innerHTML = result
+      ? `<strong>${result.bpw} bits per weight</strong>, ${result.pct}% of your budget used, ${result.slack} to spare<br>${r.output}`
+      : r.output;
+  } else if (r.state === "failed") {
+    $("failed").style.display = "block";
+    const lines = $("log").textContent.trim().split("\n");
+    $("fail-line").textContent = lines.slice(-4).join("\n");
+  } else {
+    $("status-line").textContent = "stopped";
+  }
+}
+
+function ingest(line) {
+  $("log").textContent += line + "\n";
+  let m = line.match(new RegExp(
+    `budget: ${SIZE} usable .* - ${SIZE} KV - ${SIZE} compute est - ${SIZE} reserve`));
+  if (m) {
+    budget = {
+      usable: toBytes(m[1], m[2]), kv: toBytes(m[3], m[4]),
+      compute: toBytes(m[5], m[6]), reserve: toBytes(m[7], m[8]),
+    };
+    drawTape(null);
+  }
+  m = line.match(new RegExp(`^weights: ${SIZE} of .* \\(([\\d.]+)% used, (.*?) slack\\) \\| overall ([\\d.]+) bpw`));
+  if (m && budget) {
+    result = { weights: toBytes(m[1], m[2]), pct: m[3], slack: m[4], bpw: m[5] };
+    drawTape(result);
+  }
+}
+
+// The tape: your whole usable VRAM, left to right. Weights stay tape-yellow;
+// the fixed costs (KV, compute, reserve) sit at the right end in ink tones.
+function drawTape(res) {
+  const bar = $("tape-bar"), u = budget.usable;
+  const weightRoom = u - budget.kv - budget.compute - budget.reserve;
+  const segs = [
+    ["weights" + (res ? "" : " working"), res ? res.weights : weightRoom, "weights", "var(--tape)"],
+    ["kv", budget.kv, "conversation memory", "#8C93A8"],
+    ["compute", budget.compute, "working space", "#B5BAC8"],
+    ["reserve", budget.reserve, "safety margin", "repeating-linear-gradient(-45deg,#C9CEDA 0 6px,#DDE0E8 6px 12px)"],
+  ];
+  bar.innerHTML = "";
+  const pct = bytes => 100 * bytes / u;
+  // weights grow from the left; the fixed costs stack against the right edge
+  let pos = 100 - pct(budget.kv + budget.compute + budget.reserve);
+  for (const [cls, bytes] of segs) {
+    const el = document.createElement("div");
+    el.className = "seg " + cls;
+    if (cls.startsWith("weights")) {
+      el.style.left = "0";
+    } else {
+      el.style.left = pos + "%";
+      pos += pct(bytes);
+    }
+    el.style.width = pct(bytes) + "%";
+    bar.appendChild(el);
+  }
+  $("legend").innerHTML = segs.map(([cls, bytes, name, sw]) =>
+    `<span><span class="swatch" style="background:${sw}"></span>${name} <b>${fmt(bytes)}</b></span>`).join("");
+  $("gauge").style.display = "block";
+  if (res) {
+    $("verdict").style.display = "block";
+    $("verdict").innerHTML = `<b>${res.pct}%</b> of the weight budget used &mdash; ${res.slack} left on the table &mdash; <b>${res.bpw}</b> bits per weight`;
+  }
+}
+
+$("chat").addEventListener("click", async () => {
+  const r = await fetch("/api/serve", { method: "POST" });
+  if (!r.ok) { alert((await r.json()).error); return; }
+  const { url } = await r.json();
+  $("chat").disabled = true;
+  $("chat-note").textContent = "warming up…";
+  const t0 = Date.now();
+  while (Date.now() - t0 < 180000) {
+    try { await fetch(url, { mode: "no-cors" }); break; }
+    catch { await new Promise(res => setTimeout(res, 700)); }
+  }
+  $("chat").disabled = false;
+  $("chat-note").innerHTML = `serving at <a href="${url}" target="_blank" rel="noopener">${url}</a>`;
+  window.open(url, "_blank", "noopener");
+});
+
+info();
+// A reload mid-fit (or after one) picks the run back up from the server.
+fetch("/api/log?from=0").then(r => r.json()).then(r => {
+  if (r.state !== "idle" || r.total > 0) startWatching();
+}).catch(() => {});
+</script>
+</body>
+</html>

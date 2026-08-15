@@ -9,6 +9,7 @@ mod iq_tables;
 mod quant;
 mod quant_iq;
 mod solver;
+mod ui;
 mod vram;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -50,8 +51,8 @@ struct FitArgs {
     /// override detected VRAM, e.g. "18GiB", "800MB", or bytes
     #[arg(long)]
     budget: Option<String>,
-    /// budget for a different Mac by its RAM size, e.g. "16GB"
-    /// (approximates the macOS GPU working-set limit as 74% of RAM)
+    /// budget for a different (unified-memory) machine by its RAM size,
+    /// e.g. "16GB" (approximates the macOS GPU working-set limit as 74% of RAM)
     #[arg(long, conflicts_with = "budget")]
     target: Option<String>,
     /// KV cache type to budget for and run with: f16, q8_0, or q4_0
@@ -133,6 +134,15 @@ enum Cmd {
     },
     /// Print detected GPU memory
     Vram,
+    /// Open a local web page that drives the whole pipeline (no flags needed)
+    Ui {
+        /// port to serve the page on
+        #[arg(long, default_value_t = 7788)]
+        port: u16,
+        /// don't open the browser automatically
+        #[arg(long)]
+        no_open: bool,
+    },
 }
 
 /// FitArgs minus the model/imatrix paths, for the `fit` subcommand.
@@ -235,8 +245,9 @@ fn compute_budget(args: &FitArgs, h: &Hyper) -> Result<Budget> {
             (ram * 74 / 100, format!("--target {t} (74% of RAM, macOS working-set approximation)"))
         }
         (None, None) => {
-            let (b, name) = vram::probe().ok_or_else(|| anyhow!("no Metal device found; pass --budget"))?;
-            (b, format!("Metal recommendedMaxWorkingSetSize ({name})"))
+            let (b, name) = vram::probe()
+                .ok_or_else(|| anyhow!("no probeable GPU (Metal or NVIDIA) found; pass --budget"))?;
+            (b, format!("{} ({name})", vram::probe_source()))
         }
     };
     let kv_elem = kv_bytes_per_element(&args.kv)?;
@@ -781,10 +792,11 @@ fn main() -> Result<()> {
         Cmd::Vram => {
             match vram::probe() {
                 Some((b, name)) => println!("{name}: {} usable for GPU working set", fmt_size(b)),
-                None => println!("no Metal device found"),
+                None => println!("no probeable GPU (Metal or NVIDIA) found"),
             }
             Ok(())
         }
+        Cmd::Ui { port, no_open } => ui::serve_ui(port, !no_open),
         Cmd::Plan(args) => {
             let file = Model::open(&args.model)?;
             let plan = build_plan(&args, &file)?;
@@ -860,9 +872,9 @@ fn main() -> Result<()> {
     }
 }
 
-/// exec llama-server on a model with full offload and the budgeted KV type.
-fn serve(model: &PathBuf, ctx: u64, kv: &str, extra: &[String]) -> Result<()> {
-    use std::os::unix::process::CommandExt;
+/// Build the llama-server invocation for a model with full offload and the
+/// budgeted KV type.
+fn serve_command(model: &PathBuf, ctx: u64, kv: &str, extra: &[String]) -> Result<std::process::Command> {
     kv_bytes_per_element(kv)?; // validate
     let mut cmd = std::process::Command::new("llama-server");
     cmd.arg("-m").arg(model).arg("-c").arg(ctx.to_string()).arg("-ngl").arg("99");
@@ -870,6 +882,22 @@ fn serve(model: &PathBuf, ctx: u64, kv: &str, extra: &[String]) -> Result<()> {
         cmd.args(["--cache-type-k", kv, "--cache-type-v", kv]);
     }
     cmd.args(extra);
+    Ok(cmd)
+}
+
+/// Hand the process over to llama-server (exec on unix, spawn-and-wait on
+/// Windows, which has no exec).
+fn serve(model: &PathBuf, ctx: u64, kv: &str, extra: &[String]) -> Result<()> {
+    let mut cmd = serve_command(model, ctx, kv, extra)?;
     eprintln!("exec: {cmd:?}");
-    Err(cmd.exec().into())
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        Err(cmd.exec().into())
+    }
+    #[cfg(not(unix))]
+    {
+        let status = cmd.status().context("running llama-server")?;
+        std::process::exit(status.code().unwrap_or(1));
+    }
 }
