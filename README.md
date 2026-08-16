@@ -151,6 +151,26 @@ llama-server and opens its chat page once the model is warm.
 
 ![a finished fit: the tape-measure gauge at 99.998% used, and a Chat with it button](docs/ui-fitted.png)
 
+Step by step:
+
+1. `shoehorn ui` from the directory you want the fitted model written to —
+   the output `<model>-fit.gguf` lands in the current directory, like the
+   CLI. The browser opens by itself (`--no-open` to suppress, `--port` to
+   move it off 7788).
+2. Type a model: a Hugging Face repo id, a URL, or a path to a local BF16
+   GGUF. The field suggests a few known-good repos. First fit of a repo
+   downloads the BF16, which for big models is tens of GB — the download
+   resumes if interrupted and is cached in `~/.cache/shoehorn`.
+3. Pick how much conversation room you want. More context means a bigger KV
+   cache, which comes straight out of the weight budget.
+4. **Fit it to my machine.** Watch the tape fill; **Stop** aborts cleanly,
+   and reloading the page mid-fit picks the run back up.
+5. **Chat with it** starts llama-server on port 8093 and opens its chat page
+   once the model is loaded. The fitted GGUF is a normal file — anything
+   that speaks GGUF (LM Studio, ollama, llama.cpp on another machine) can
+   use it afterward.
+6. Ctrl-C in the terminal running `shoehorn ui` shuts everything down.
+
 The advanced knobs (KV cache type, budget override, `--calibrate`) are under
 "More options". The page runs `shoehorn fit` as a subprocess and streams its
 output, so it can't drift from what the CLI does — everything the CLI would
