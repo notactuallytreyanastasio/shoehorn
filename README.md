@@ -196,18 +196,20 @@ The pipeline runs in five stages.
 
 Probing comes first. On Apple Silicon, "VRAM" is not RAM: Metal will only wire
 a fraction of unified memory for the GPU. shoehorn asks the Metal device for
-`recommendedMaxWorkingSetSize` (17.76 GiB on a 24 GB M4 Pro, about 75%).
-`--budget` overrides the probe, which also lets you quantize for a different
-machine ("make this fit my friend's 8 GiB M1") or for an artificial envelope.
+`recommendedMaxWorkingSetSize` (17.76 GiB on a 24 GB M4 Pro, about 75%). On
+other machines it asks NVML — or `rocm-smi` on AMD — for the first device's
+free VRAM. `--budget` overrides the probe, which also lets you quantize for a
+different machine ("make this fit my friend's 8 GiB M1") or for an
+artificial envelope.
 
 Next it computes the budget. From the target context length and the model's
 own GGUF hyperparameters, shoehorn computes the KV cache size exactly and
 estimates the compute buffer, then subtracts both plus a safety `--reserve`.
 What remains is the weight budget. See [The budget model](#the-budget-model).
 
-Then it measures. Every quantizable tensor gets a candidate ladder (Q4_K,
-Q5_K, Q6_K, Q8_0, F16, or the legacy 32-block formats when the row length
-isn't divisible by 256). Each (tensor, candidate) pair is scored by actually
+Then it measures. Every quantizable tensor gets a candidate ladder — the IQ
+codebook formats (IQ2_XXS up through IQ4_XS), the K-quants, Q8_0, and F16,
+or the legacy 32-block formats when the row length isn't divisible by 256. Each (tensor, candidate) pair is scored by actually
 encoding and decoding a sample of rows and accumulating the imatrix-weighted
 squared error. That is the true end-to-end distortion under the decoder
 llama.cpp will use. The work parallelizes across all cores; on Qwen3-0.6B the
@@ -365,7 +367,8 @@ Fit flags, shared by `fit`, `plan`, and `quantize`:
 | `--budget` | GPU probe | total memory envelope: `18GiB`, `800MB`, `4.5G`, or plain bytes |
 | `--target` | — | budget for a different unified-memory machine by RAM size, e.g. `--target 16GB` (approximates the macOS working-set limit as 74% of RAM) |
 | `--kv` | f16 | KV cache type to budget for and run with (`f16`, `q8_0`, `q4_0`); `q8_0` roughly halves the KV term, freeing that memory for weights |
-| `--reserve` | 512MiB | safety margin subtracted from the envelope |
+| `--reserve` | 512MiB (160MiB with `--calibrate`) | safety margin subtracted from the envelope |
+| `--calibrate` | off | after writing, load the result in llama.cpp once, measure real KV/compute allocations, re-solve with them, and rewrite — spending the recovered estimate slack on quality (unchanged tensors are reused) |
 | `--exact-errors` | off | score every row instead of a 128-row sample per tensor |
 
 `plan` and `quantize` print the full per-tensor table (shape, chosen type,
@@ -377,7 +380,7 @@ is passed through (`--port`, `--api-key`, ...).
 
 `vram` prints the detected device and its usable GPU memory: Metal's
 recommended working-set size on macOS, NVML's free VRAM on the first NVIDIA
-device elsewhere.
+device elsewhere, with a `rocm-smi` fallback for AMD.
 
 `eval` wraps `llama-perplexity` so you can check what a fit actually cost:
 it measures perplexity on held-out text (by default man pages disjoint from
@@ -504,6 +507,7 @@ filled to the byte.
 
 ```
 src/gguf.rs      GGUF v3 reader/writer (arbitrary KVs preserved, aligned offsets)
+src/fetch.rs     HF repo / URL resolution, shard-aware downloads, auto-imatrix
 src/quant.rs     the 8 scale+round encoders + decoders, weighted scale search
 src/quant_iq.rs  the 7 IQ codebook encoders + decoders, lattice neighbour search
 src/iq_tables.rs script-extracted lattice/codebook tables (generated file)
@@ -513,7 +517,8 @@ src/vram.rs      GPU probe: Metal working set (macOS), NVML free VRAM (elsewhere
 src/main.rs      CLI, budget model, measurement orchestration (rayon)
 src/ui.rs        `shoehorn ui` local web server driving fit as a subprocess
 src/ui.html      the page it serves (embedded at compile time)
-DESIGN.md        the how/why of every decision, in order (D1-D10), gotchas
+src/e2e_tests.rs synthetic-GGUF pipeline test + metadata roundtrip
+DESIGN.md        the how/why of every decision, in order (D1-D14), gotchas
 docs/            decision-graph export (deciduous)
 ```
 
@@ -521,8 +526,16 @@ docs/            decision-graph export (deciduous)
 
 `cargo test` covers round-trip encode/decode for every format against RMSE
 tolerance, a check that imatrix weighting actually shifts the fit toward
-important columns, and solver unit tests (max quality when everything fits,
-budget respected, infeasibility detected).
+important columns, solver unit tests (max quality when everything fits,
+budget respected, infeasibility detected), HF file/shard selection, the
+rocm-smi parser, a metadata roundtrip over every GGUF value type, and an
+end-to-end pipeline test that synthesizes a small BF16 GGUF, fits it into a
+deliberately tight budget, and re-reads the output. All of it runs in CI on
+macOS, Linux, and Windows.
+
+For measuring what a specific fit cost on your machine, `shoehorn eval -m
+fitted.gguf --baseline source.gguf` prints held-out perplexity for both and
+the delta.
 
 The end-to-end oracle is llama.cpp itself: an independent implementation
 loads the quantized file on Metal. A single mispacked bit plane produces
@@ -535,10 +548,10 @@ perplexity is strong evidence the encoders are bit-compatible.
   not implemented; below IQ2 quality collapses for all but very large models
   anyway. Expect IQ-heavy encodes to be slower than K-quant ones (lattice
   neighbour search): the 0.6B test model takes ~25 s instead of ~6 s.
-- The compute buffer is an estimate. Real allocation varies by llama.cpp
-  version and flash-attention path; `--reserve` absorbs the difference. A
-  `--calibrate` mode that launches llama.cpp once and reads back actual
-  allocations would replace the guess with a measurement.
+- The compute buffer is an estimate (real allocation varies by llama.cpp
+  version and flash-attention path; `--reserve` absorbs the difference)
+  unless you pass `--calibrate`, which replaces the guess with a measured
+  one at the cost of one extra model load and a partial rewrite.
 - The probe covers Metal (macOS), NVML (NVIDIA on Linux/Windows), and
   rocm-smi (AMD on Linux, parse-based and not yet exercised on real
   hardware). Intel GPUs need an explicit `--budget`. Off-macOS the probe
