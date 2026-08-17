@@ -5,6 +5,11 @@ edition = "2024"
 description = "Quantize a BF16 GGUF with an imatrix to exactly fit your VRAM, then run it with llama.cpp"
 license = "MIT"
 repository = "https://github.com/notactuallytreyanastasio/shoehorn"
+readme = "README.md"
+keywords = ["gguf", "llm", "quantization", "llama-cpp", "imatrix"]
+categories = ["command-line-utilities", "science"]
+# keep local model files (testdata/) and web assets out of the crate package
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 anyhow = "1.0.104"

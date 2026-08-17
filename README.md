@@ -60,8 +60,10 @@ doubles as an independent correctness oracle.
 
 ## Quick start
 
-shoehorn needs two things installed: llama.cpp (inference backend + imatrix
-generation) and a Rust toolchain to build shoehorn itself.
+shoehorn needs llama.cpp installed (inference backend + imatrix generation).
+For shoehorn itself, grab a prebuilt binary from the
+[releases page](https://github.com/notactuallytreyanastasio/shoehorn/releases)
+or build it with a Rust toolchain as shown below.
 
 **macOS (Apple Silicon)**
 
@@ -163,8 +165,11 @@ Step by step:
    resumes if interrupted and is cached in `~/.cache/shoehorn`.
 3. Pick how much conversation room you want. More context means a bigger KV
    cache, which comes straight out of the weight budget.
-4. **Fit it to my machine.** Watch the tape fill; **Stop** aborts cleanly,
-   and reloading the page mid-fit picks the run back up.
+4. **Fit it to my machine** — or **Preview the mix** first, which solves and
+   shows the tape and the per-type breakdown without writing anything
+   (`fit --dry-run` underneath), then offers **Fit it for real**. Downloads
+   render as a progress bar; **Stop** aborts cleanly, and reloading the page
+   mid-fit picks the run back up.
 5. **Chat with it** starts llama-server on port 8093 and opens its chat page
    once the model is loaded. The fitted GGUF is a normal file — anything
    that speaks GGUF (LM Studio, ollama, llama.cpp on another machine) can
@@ -324,7 +329,7 @@ setup, `--budget` and `--reserve` let you dial it in precisely.
 ## CLI reference
 
 ```
-shoehorn fit       <path | owner/repo | url> [-i <imatrix>] [fit flags] [-o out.gguf] [--serve]
+shoehorn fit       <path | owner/repo | url> [-i <imatrix>] [fit flags] [-o out.gguf] [--serve] [--dry-run]
 shoehorn plan      -m <bf16.gguf> [-i <imatrix>] [fit flags]
 shoehorn quantize  -m <bf16.gguf> [-i <imatrix>] [fit flags] -o <out.gguf>
 shoehorn run       -m <model.gguf> [--ctx N] [--kv q8_0] [-- <llama-server args...>]
@@ -336,6 +341,8 @@ shoehorn ui        [--port 7788] [--no-open]
 refuses split GGUFs, and grabs any imatrix in the repo), or a direct URL.
 Downloads land in `~/.cache/shoehorn` and resume if interrupted. Without an
 imatrix, it generates one with `llama-imatrix` when the model fits the GPU.
+`--dry-run` stops after printing the solved plan — like `plan`, but with
+`fit`'s fetching, so it works on repo ids and URLs too.
 
 Fit flags, shared by `fit`, `plan`, and `quantize`:
 

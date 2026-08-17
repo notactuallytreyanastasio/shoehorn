@@ -47,6 +47,8 @@ struct State {
     output: Option<String>,
     fit_child: Option<Child>,
     cancelled: bool,
+    /// --dry-run fit: succeeds without writing anything
+    preview: bool,
     params: FitParams,
     serve_child: Option<Child>,
 }
@@ -59,6 +61,7 @@ impl State {
             output: None,
             fit_child: None,
             cancelled: false,
+            preview: false,
             params: FitParams::default(),
             serve_child: None,
         }
@@ -147,7 +150,11 @@ fn api_log(url: &str, state: &Shared) -> tiny_http::Response<std::io::Cursor<Vec
             "state": s.phase.name(),
             "lines": lines,
             "total": s.log.len(),
+            // progress lines are collapsed in place, so the tail can change
+            // without total growing; the client reads it from here
+            "last": s.log.last(),
             "output": s.output,
+            "preview": s.preview,
         }),
     )
 }
@@ -164,6 +171,7 @@ fn api_fit(req: &mut tiny_http::Request, state: &Shared) -> Result<Value> {
     let kv = v["kv"].as_str().unwrap_or("f16").to_string();
     let budget = v["budget"].as_str().unwrap_or("").trim().to_string();
     let calibrate = v["calibrate"].as_bool().unwrap_or(false);
+    let preview = v["preview"].as_bool().unwrap_or(false);
 
     let mut s = state.lock().unwrap();
     if s.phase == Phase::Running {
@@ -185,15 +193,22 @@ fn api_fit(req: &mut tiny_http::Request, state: &Shared) -> Result<Value> {
     if !budget.is_empty() {
         cmd.args(["--budget", &budget]);
     }
-    if calibrate {
+    if calibrate && !preview {
         cmd.arg("--calibrate");
+    }
+    if preview {
+        cmd.arg("--dry-run");
     }
     let mut child = cmd.spawn().context("starting the fit")?;
 
     s.phase = Phase::Running;
-    s.log = vec![format!("$ shoehorn fit {model} --ctx {ctx} --kv {kv}")];
+    s.log = vec![format!(
+        "$ shoehorn fit {model} --ctx {ctx} --kv {kv}{}",
+        if preview { " --dry-run" } else { "" }
+    )];
     s.output = None;
     s.cancelled = false;
+    s.preview = preview;
     s.params = FitParams { ctx, kv };
 
     let stdout = child.stdout.take().unwrap();
@@ -236,12 +251,26 @@ fn pump_lines(mut stream: Box<dyn Read + Send>, state: &Shared) {
     }
 }
 
+/// A curl --progress-bar line: hashes, spaces, and a percentage.
+fn is_progress(line: &str) -> bool {
+    line.contains('%') && line.chars().all(|c| matches!(c, '#' | ' ' | '.' | '%' | '0'..='9'))
+}
+
 fn push_line(state: &Shared, text: String) {
     let mut s = state.lock().unwrap();
     if let Some(rest) = text.strip_prefix("wrote ")
         && let Some((path, _)) = rest.rsplit_once(" (")
     {
         s.output = Some(path.to_string());
+    }
+    // Collapse download progress in place so a 60 GB pull is one log line,
+    // not thousands. api_log's "last" field carries the updates.
+    if is_progress(&text)
+        && let Some(last) = s.log.last_mut()
+        && is_progress(last)
+    {
+        *last = text;
+        return;
     }
     s.log.push(text);
 }
@@ -263,7 +292,7 @@ fn watch_fit(state: &Shared) {
                 if s.cancelled {
                     s.phase = Phase::Idle;
                     s.log.push("stopped".into());
-                } else if status.success() && s.output.is_some() {
+                } else if status.success() && (s.preview || s.output.is_some()) {
                     s.phase = Phase::Done;
                 } else {
                     s.phase = Phase::Failed;

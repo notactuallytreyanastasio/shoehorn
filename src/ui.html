@@ -102,6 +102,7 @@
     background: none; border: 1px solid var(--seam); color: var(--ink-soft);
     padding: 12px 18px;
   }
+  button:disabled { opacity: 0.45; cursor: default; }
   .actions { display: flex; gap: 12px; margin-top: 22px; align-items: center; }
   /* ---- the fitting: status, tape gauge, log ---- */
   #fitting { display: none; }
@@ -160,6 +161,20 @@
   .legend b { color: var(--ink); font-weight: 600; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; }
   #verdict { display: none; font-family: var(--mono); font-size: 15px; margin-top: 14px; }
+  #dl { display: none; margin-top: 14px; }
+  .dl-track { height: 8px; border-radius: 4px; background: var(--seam); overflow: hidden; }
+  #dl-fill { height: 100%; width: 0%; background: var(--ink); transition: width 0.4s; }
+  #dl-label { font: 12px var(--mono); color: var(--ink-soft); margin-top: 5px; display: block; }
+  #mix { display: none; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  #mix span {
+    font: 12px var(--mono);
+    background: var(--paper);
+    border: 1px solid var(--seam);
+    border-radius: 4px;
+    padding: 3px 8px;
+  }
+  #previewed { display: none; border-left: 4px solid var(--tape-deep); }
+  #previewed p { font-size: 14px; color: var(--ink-soft); margin: 6px 0 14px; }
   #logbox { margin-top: 16px; }
   #log {
     font: 12.5px/1.6 var(--mono);
@@ -241,6 +256,7 @@
 
     <div class="actions">
       <button class="primary" id="go">Fit it to my machine</button>
+      <button class="quiet" id="preview">Preview the mix</button>
       <button class="quiet" id="stop" hidden>Stop</button>
     </div>
   </section>
@@ -248,15 +264,29 @@
   <section class="card" id="fitting">
     <div class="eyebrow">Fitting</div>
     <div class="status"><div class="needle" id="needle"></div><div id="status-line">starting&hellip;</div></div>
+    <div id="dl">
+      <div class="dl-track"><div id="dl-fill"></div></div>
+      <span id="dl-label">downloading&hellip;</span>
+    </div>
     <div id="gauge">
       <div class="tape-bar" id="tape-bar" role="img" aria-label="memory budget gauge"></div>
       <div class="legend" id="legend"></div>
       <div id="verdict"></div>
+      <div id="mix"></div>
     </div>
     <details id="logbox">
       <summary>Show the work</summary>
       <div id="log" aria-live="polite"></div>
     </details>
+  </section>
+
+  <section class="card" id="previewed">
+    <div class="eyebrow" style="color:var(--tape-deep)">Previewed</div>
+    <p>That&rsquo;s the plan &mdash; nothing has been written yet. The tape above shows
+      where every megabyte would go.</p>
+    <div class="actions" style="margin-top:0">
+      <button class="primary" id="commit">Fit it for real</button>
+    </div>
   </section>
 
   <section class="card" id="done">
@@ -281,6 +311,8 @@
 "use strict";
 const $ = id => document.getElementById(id);
 let seen = 0, poller = null, budget = null, result = null;
+let clientLog = [], mixRows = null;
+const isProgress = l => /%\s*$/.test(l) && /^[#\s.\d%]+$/.test(l);
 
 const SIZE = String.raw`([\d.]+)\s*(GiB|MiB|B)\b`;
 const toBytes = (n, unit) => +n * ({ GiB: 2 ** 30, MiB: 2 ** 20, B: 1 }[unit]);
@@ -297,29 +329,38 @@ async function info() {
   } catch { $("machine-line").textContent = "the shoehorn server went away — restart `shoehorn ui`"; }
 }
 
-$("go").addEventListener("click", async () => {
+async function submitFit(preview) {
   const body = {
     model: $("model").value || $("model").placeholder,
     ctx: +$("ctx").value,
     kv: $("kv").value,
     budget: $("budget").value,
     calibrate: $("calibrate").checked,
+    preview,
   };
   const r = await fetch("/api/fit", { method: "POST", body: JSON.stringify(body) });
   if (!r.ok) { alert((await r.json()).error); return; }
   startWatching();
-});
+}
+$("go").addEventListener("click", () => submitFit(false));
+$("preview").addEventListener("click", () => submitFit(true));
+$("commit").addEventListener("click", () => submitFit(false));
 
 function startWatching() {
-  seen = 0; budget = null; result = null;
+  seen = 0; budget = null; result = null; clientLog = []; mixRows = null;
   $("log").textContent = "";
   $("gauge").style.display = "none";
   $("verdict").style.display = "none";
+  $("mix").style.display = "none";
+  $("mix").innerHTML = "";
+  $("dl").style.display = "none";
   $("done").style.display = "none";
+  $("previewed").style.display = "none";
   $("failed").style.display = "none";
   $("fitting").style.display = "block";
   $("needle").style.display = "block";
   $("go").disabled = true;
+  $("preview").disabled = true;
   $("stop").hidden = false;
   clearInterval(poller);
   poller = setInterval(poll, 700);
@@ -333,34 +374,71 @@ async function poll() {
   catch { return; }
   seen = r.total;
   for (const line of r.lines) ingest(line);
-  if (r.lines.length) {
-    const last = r.lines[r.lines.length - 1];
-    $("status-line").textContent = last.length > 90 ? last.slice(0, 90) + "…" : last;
-    if ($("logbox").open) $("log").scrollTop = $("log").scrollHeight;
+  if (r.last != null) {
+    // the server collapses download-progress lines in place, so the log
+    // tail can change without new lines arriving — refresh our copy
+    if (clientLog.length && isProgress(clientLog[clientLog.length - 1]) && isProgress(r.last)) {
+      clientLog[clientLog.length - 1] = r.last;
+    }
+    // the download bar already renders progress; don't echo the raw #### line
+    if (!isProgress(r.last)) {
+      $("status-line").textContent = r.last.length > 90 ? r.last.slice(0, 90) + "…" : r.last;
+    } else {
+      $("status-line").textContent = "downloading…";
+    }
   }
+  $("log").textContent = clientLog.join("\n");
+  if ($("logbox").open) $("log").scrollTop = $("log").scrollHeight;
+  updateDl(r.state === "running" ? r.last : null);
   if (r.state === "running") return;
   clearInterval(poller);
   $("go").disabled = false;
+  $("preview").disabled = false;
   $("stop").hidden = true;
   $("needle").style.display = "none";
   if (r.state === "done") {
-    $("status-line").textContent = "done";
     document.querySelector(".seg.weights")?.classList.remove("working");
-    $("done").style.display = "block";
-    $("done-line").innerHTML = result
-      ? `<strong>${result.bpw} bits per weight</strong>, ${result.pct}% of your budget used, ${result.slack} to spare<br>${r.output}`
-      : r.output;
+    if (r.output) {
+      $("status-line").textContent = "done";
+      $("done").style.display = "block";
+      $("done-line").innerHTML = result
+        ? `<strong>${result.bpw} bits per weight</strong>, ${result.pct}% of your budget used, ${result.slack} to spare<br>${r.output}`
+        : r.output;
+    } else {
+      $("status-line").textContent = "previewed — nothing written";
+      $("previewed").style.display = "block";
+    }
   } else if (r.state === "failed") {
     $("failed").style.display = "block";
-    const lines = $("log").textContent.trim().split("\n");
-    $("fail-line").textContent = lines.slice(-4).join("\n");
+    $("fail-line").textContent = clientLog.slice(-4).join("\n");
   } else {
     $("status-line").textContent = "stopped";
   }
 }
 
+function updateDl(last) {
+  const m = last && isProgress(last) ? last.match(/([\d.]+)%\s*$/) : null;
+  if (m) {
+    $("dl").style.display = "block";
+    $("dl-fill").style.width = m[1] + "%";
+    $("dl-label").textContent = `downloading the model… ${(+m[1]).toFixed(1)}%`;
+  } else {
+    $("dl").style.display = "none";
+  }
+}
+
 function ingest(line) {
-  $("log").textContent += line + "\n";
+  if (isProgress(line) && clientLog.length && isProgress(clientLog[clientLog.length - 1])) {
+    clientLog[clientLog.length - 1] = line;
+  } else {
+    clientLog.push(line);
+  }
+  if (line.trim() === "by type:") { mixRows = []; return; }
+  if (mixRows !== null) {
+    const t = line.match(/^\s+(\S+):\s+(\d+) tensors, (.+)$/);
+    if (t) { mixRows.push(t); renderMix(); return; }
+    if (line.trim() !== "") mixRows = null;
+  }
   let m = line.match(new RegExp(
     `budget: ${SIZE} usable .* - ${SIZE} KV - ${SIZE} compute est - ${SIZE} reserve`));
   if (m) {
@@ -411,6 +489,13 @@ function drawTape(res) {
     $("verdict").style.display = "block";
     $("verdict").innerHTML = `<b>${res.pct}%</b> of the weight budget used &mdash; ${res.slack} left on the table &mdash; <b>${res.bpw}</b> bits per weight`;
   }
+}
+
+function renderMix() {
+  $("mix").innerHTML = mixRows
+    .map(([, ty, n, sz]) => `<span><b>${ty}</b> ×${n} — ${sz}</span>`)
+    .join("");
+  $("mix").style.display = "flex";
 }
 
 $("chat").addEventListener("click", async () => {

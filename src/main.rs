@@ -2,6 +2,8 @@
 // port stays auditable against the reference; iterator style would hide that.
 #![allow(clippy::needless_range_loop)]
 
+#[cfg(test)]
+mod e2e_tests;
 mod fetch;
 mod gguf;
 mod imatrix;
@@ -125,6 +127,9 @@ enum Cmd {
         /// output GGUF path (default: <model-stem>-fit.gguf in the current dir)
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// solve and print the plan, then stop before encoding anything
+        #[arg(long)]
+        dry_run: bool,
         /// launch llama-server on the result
         #[arg(short, long)]
         serve: bool,
@@ -818,7 +823,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Run { model, ctx, kv, extra } => serve(&model, ctx, &kv, &extra),
-        Cmd::Fit { model, imatrix, fit, output, serve: do_serve, extra } => {
+        Cmd::Fit { model, imatrix, fit, output, dry_run, serve: do_serve, extra } => {
             let resolved = fetch::resolve(&model)?;
             let imatrix_path = match imatrix {
                 Some(p) => Some(p),
@@ -849,6 +854,10 @@ fn main() -> Result<()> {
             let file = Model::open(&args.model)?;
             let plan = build_plan(&args, &file)?;
             print_plan(&plan, &file);
+            if dry_run {
+                eprintln!("\ndry run: nothing written; run again without --dry-run to encode");
+                return Ok(());
+            }
             let im = match &args.imatrix {
                 Some(p) => imatrix::load(p.to_str().unwrap())?,
                 None => imatrix::Imatrix::new(),
