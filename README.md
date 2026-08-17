@@ -558,3 +558,14 @@ interactive-mode hang, a 15-byte "Entry not found" model download that exits
 - Output loads but talks nonsense: that is the oracle failing. File a bug
   with the tensor table from `shoehorn plan`; a specific format's packing is
   suspect.
+- `no probeable GPU found` on Linux: NVML comes with the NVIDIA driver — if
+  `nvidia-smi` works, the probe should too. On AMD, the probe shells out to
+  `rocm-smi`; without either, pass `--budget`.
+- Fits work but `shoehorn run` can't find llama-server on Windows: PATH
+  changes only apply to terminals opened after editing it; open a new one.
+- Quantized output seems too conservative on a busy GPU: off-macOS the probe
+  uses *free* VRAM at fit time. Close whatever is holding memory (games,
+  browsers with GPU accel) and re-run, or pass `--budget` with the card's
+  full size.
+- The web UI shows "a fit is already running": one fit at a time per
+  `shoehorn ui` process — Stop the current one or wait it out.

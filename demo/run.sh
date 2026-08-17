@@ -44,8 +44,8 @@ echo "== detected GPU budget =="
 "$BIN" vram
 
 ppl() {
-    llama-perplexity -m "$1" -f "$DATA/heldout.txt" -ngl 99 2>&1 </dev/null \
-        | sed -n 's/.*Final estimate: PPL = \([0-9.]*\).*/\1/p'
+    "$BIN" eval -m "$1" -f "$DATA/heldout.txt" 2>/dev/null </dev/null \
+        | sed -n 's/.*: PPL \([0-9.]*\)$/\1/p'
 }
 
 echo
