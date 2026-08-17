@@ -4014,6 +4014,61 @@
       "created_at": "2026-08-15T00:52:34.775389-04:00",
       "updated_at": "2026-08-15T00:52:34.775389-04:00",
       "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 378,
+      "change_id": "41241290-a6e1-4406-ab60-2cafde497fdd",
+      "node_type": "action",
+      "title": "README: per-platform install directions (macOS/Linux/Windows) + web UI section with docs/ screenshots",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T08:38:11.777025-04:00",
+      "updated_at": "2026-08-15T08:38:11.777025-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90}"
+    },
+    {
+      "id": 379,
+      "change_id": "8160e2dd-0557-4e25-b0f5-95221dab40aa",
+      "node_type": "outcome",
+      "title": "README shipped as 2847610: macOS/Linux/Windows quick starts, web UI section, two screenshots in docs/",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-15T08:38:21.220641-04:00",
+      "updated_at": "2026-08-15T08:38:21.220641-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":95}"
+    },
+    {
+      "id": 380,
+      "change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "node_type": "goal",
+      "title": "Distribution (release binaries), e2e pipeline test in CI, UI depth (plan preview + download progress)",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-16T23:51:22.431130-04:00",
+      "updated_at": "2026-08-16T23:51:22.431130-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90,\"prompt\":\"lets conquer distribution, end to end test, UI depth\"}"
+    },
+    {
+      "id": 381,
+      "change_id": "51171625-63eb-4d63-ab01-6ba17aa65a90",
+      "node_type": "action",
+      "title": "Shipped as dcb2313: release.yml (3-target binaries), crates.io-ready packaging, e2e synthetic-GGUF test, fit --dry-run, UI preview + download bar",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-16T23:58:53.325662-04:00",
+      "updated_at": "2026-08-16T23:58:53.325662-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 382,
+      "change_id": "0f05a4c1-cf36-4511-86cd-3f79098ead0d",
+      "node_type": "outcome",
+      "title": "v0.1.0 tagged; e2e test green locally (9 tests); preview + download bar screenshot-verified on live HF fetch of Qwen3-0.6B",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-16T23:58:53.354267-04:00",
+      "updated_at": "2026-08-16T23:58:53.354267-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
     }
   ],
   "edges": [
@@ -7910,6 +7965,61 @@
       "weight": 1.0,
       "rationale": "verified live: API-driven fit, screenshots, chat completion",
       "created_at": "2026-08-15T00:52:38.512695-04:00"
+    },
+    {
+      "id": 368,
+      "from_node_id": 370,
+      "to_node_id": 378,
+      "from_change_id": "b18c664e-8dad-4875-b945-6ad8b29103a6",
+      "to_change_id": "41241290-a6e1-4406-ab60-2cafde497fdd",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "documentation follow-up requested by user",
+      "created_at": "2026-08-15T08:38:11.785926-04:00"
+    },
+    {
+      "id": 369,
+      "from_node_id": 378,
+      "to_node_id": 379,
+      "from_change_id": "41241290-a6e1-4406-ab60-2cafde497fdd",
+      "to_change_id": "8160e2dd-0557-4e25-b0f5-95221dab40aa",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "pushed to master",
+      "created_at": "2026-08-15T08:38:21.228836-04:00"
+    },
+    {
+      "id": 370,
+      "from_node_id": 370,
+      "to_node_id": 380,
+      "from_change_id": "b18c664e-8dad-4875-b945-6ad8b29103a6",
+      "to_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "next round of shoehorn work chosen from proposed roadmap",
+      "created_at": "2026-08-16T23:51:22.439329-04:00"
+    },
+    {
+      "id": 371,
+      "from_node_id": 380,
+      "to_node_id": 381,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "51171625-63eb-4d63-ab01-6ba17aa65a90",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "all three workstreams implemented and verified",
+      "created_at": "2026-08-16T23:58:53.334414-04:00"
+    },
+    {
+      "id": 372,
+      "from_node_id": 381,
+      "to_node_id": 382,
+      "from_change_id": "51171625-63eb-4d63-ab01-6ba17aa65a90",
+      "to_change_id": "0f05a4c1-cf36-4511-86cd-3f79098ead0d",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "verification evidence",
+      "created_at": "2026-08-16T23:58:53.362158-04:00"
     }
   ],
   "documents": [
