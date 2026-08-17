@@ -175,6 +175,11 @@
   }
   #previewed { display: none; border-left: 4px solid var(--tape-deep); }
   #previewed p { font-size: 14px; color: var(--ink-soft); margin: 6px 0 14px; }
+  #fits { display: flex; flex-direction: column; gap: 8px; }
+  .fit-row { display: flex; align-items: center; gap: 12px; font: 13px var(--mono); }
+  .fit-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fit-row .meta { color: var(--ink-soft); flex: none; }
+  .fit-row button { padding: 7px 14px; font-size: 13px; flex: none; }
   #logbox { margin-top: 16px; }
   #log {
     font: 12.5px/1.6 var(--mono);
@@ -213,6 +218,11 @@
     <div class="measure" id="machine-line">taking the measurement&hellip;</div>
     <div class="warn" id="llama-warn" hidden>llama.cpp isn&rsquo;t installed, so the fitted model can&rsquo;t be run from here.
       Install it first (macOS: <code>brew install llama.cpp</code>).</div>
+  </section>
+
+  <section class="card" id="history" hidden>
+    <div class="eyebrow">Previous fits</div>
+    <div id="fits"></div>
   </section>
 
   <section class="card">
@@ -400,6 +410,7 @@ async function poll() {
     document.querySelector(".seg.weights")?.classList.remove("working");
     if (r.output) {
       $("status-line").textContent = "done";
+      loadHistory();
       $("done").style.display = "block";
       $("done-line").innerHTML = result
         ? `<strong>${result.bpw} bits per weight</strong>, ${result.pct}% of your budget used, ${result.slack} to spare<br>${r.output}`
@@ -498,23 +509,70 @@ function renderMix() {
   $("mix").style.display = "flex";
 }
 
-$("chat").addEventListener("click", async () => {
-  const r = await fetch("/api/serve", { method: "POST" });
+async function serveAndOpen(payload, btn, note) {
+  const r = await fetch("/api/serve", { method: "POST", body: JSON.stringify(payload || {}) });
   if (!r.ok) { alert((await r.json()).error); return; }
   const { url } = await r.json();
-  $("chat").disabled = true;
-  $("chat-note").textContent = "warming up…";
+  btn.disabled = true;
+  note.textContent = "warming up…";
   const t0 = Date.now();
   while (Date.now() - t0 < 180000) {
     try { await fetch(url, { mode: "no-cors" }); break; }
     catch { await new Promise(res => setTimeout(res, 700)); }
   }
-  $("chat").disabled = false;
-  $("chat-note").innerHTML = `serving at <a href="${url}" target="_blank" rel="noopener">${url}</a>`;
+  btn.disabled = false;
+  note.innerHTML = `serving at <a href="${url}" target="_blank" rel="noopener">${url}</a>`;
   window.open(url, "_blank", "noopener");
+}
+$("chat").addEventListener("click", () => serveAndOpen(null, $("chat"), $("chat-note")));
+
+async function loadHistory() {
+  try {
+    const r = await (await fetch("/api/history")).json();
+    $("history").hidden = !r.fits.length;
+    $("fits").innerHTML = "";
+    for (const f of r.fits) {
+      const row = document.createElement("div");
+      row.className = "fit-row";
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = f.output.split("/").pop();
+      name.title = f.output;
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = `ctx ${f.ctx} · ${f.kv}`;
+      const note = document.createElement("span");
+      note.className = "meta";
+      const btn = document.createElement("button");
+      btn.className = "quiet";
+      btn.textContent = "Chat";
+      btn.addEventListener("click", () => serveAndOpen(f, btn, note));
+      row.append(name, meta, btn, note);
+      $("fits").append(row);
+    }
+  } catch {}
+}
+
+// Live model search: after a pause in typing, ask Hugging Face (via the
+// server) and refresh the suggestion list.
+let searchTimer = null;
+$("model").addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const q = $("model").value.trim();
+  if (q.length < 3 || q.startsWith("/") || q.startsWith("~")) return;
+  searchTimer = setTimeout(async () => {
+    try {
+      const r = await (await fetch(`/api/search?q=${encodeURIComponent(q)}`)).json();
+      if (!r.models.length) return;
+      $("model-ideas").innerHTML = r.models
+        .map(id => `<option value="${id.replace(/"/g, "")}"></option>`)
+        .join("");
+    } catch {}
+  }, 350);
 });
 
 info();
+loadHistory();
 // A reload mid-fit (or after one) picks the run back up from the server.
 fetch("/api/log?from=0").then(r => r.json()).then(r => {
   if (r.state !== "idle" || r.total > 0) startWatching();

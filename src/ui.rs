@@ -94,11 +94,13 @@ fn route(req: &mut tiny_http::Request, state: &Shared) -> tiny_http::Response<st
         (false, "/") => html(PAGE),
         (false, "/api/info") => api_info(),
         (false, "/api/log") => api_log(&url, state),
+        (false, "/api/search") => api_search(&url),
+        (false, "/api/history") => json_resp(200, &json!({ "fits": read_history() })),
         (true, "/api/fit") => match api_fit(req, state) {
             Ok(v) => json_resp(200, &v),
             Err(e) => json_resp(400, &json!({ "error": e.to_string() })),
         },
-        (true, "/api/serve") => match api_serve(state) {
+        (true, "/api/serve") => match api_serve(req, state) {
             Ok(v) => json_resp(200, &v),
             Err(e) => json_resp(400, &json!({ "error": e.to_string() })),
         },
@@ -157,6 +159,62 @@ fn api_log(url: &str, state: &Shared) -> tiny_http::Response<std::io::Cursor<Vec
             "preview": s.preview,
         }),
     )
+}
+
+/// Proxy a model search to Hugging Face so the page needs no cross-origin
+/// requests. The query arrives percent-encoded and is passed through as-is.
+fn api_search(url: &str) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
+    let q: String = url
+        .split_once("q=")
+        .map(|(_, v)| v.split('&').next().unwrap_or(""))
+        .unwrap_or("")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '%' | '+' | '.' | '_' | '/' | '-'))
+        .take(80)
+        .collect();
+    if q.len() < 2 {
+        return json_resp(200, &json!({ "models": [] }));
+    }
+    let api = format!("https://huggingface.co/api/models?search={q}&filter=gguf&limit=8");
+    let ids: Vec<String> = Command::new("curl")
+        .args(["-sL", "--fail", "--max-time", "5", &api])
+        .output()
+        .ok()
+        .and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok())
+        .and_then(|v| {
+            v.as_array().map(|arr| {
+                arr.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect()
+            })
+        })
+        .unwrap_or_default();
+    json_resp(200, &json!({ "models": ids }))
+}
+
+fn history_path() -> Option<std::path::PathBuf> {
+    crate::fetch::cache_dir().ok().map(|d| d.join("fits.json"))
+}
+
+fn read_history() -> Vec<Value> {
+    let list: Vec<Value> = history_path()
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default();
+    // A fit whose file was deleted isn't servable; don't offer it.
+    list.into_iter()
+        .filter(|e| e["output"].as_str().is_some_and(|p| std::path::Path::new(p).exists()))
+        .collect()
+}
+
+fn record_fit(output: &str, ctx: u64, kv: &str) {
+    let Some(path) = history_path() else { return };
+    let abs = std::fs::canonicalize(output)
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| output.to_string());
+    let mut list = read_history();
+    list.retain(|e| e["output"].as_str() != Some(abs.as_str()));
+    list.insert(0, json!({ "output": abs, "ctx": ctx, "kv": kv }));
+    list.truncate(12);
+    let _ = std::fs::write(path, serde_json::to_vec(&list).unwrap_or_default());
 }
 
 fn api_fit(req: &mut tiny_http::Request, state: &Shared) -> Result<Value> {
@@ -294,6 +352,9 @@ fn watch_fit(state: &Shared) {
                     s.log.push("stopped".into());
                 } else if status.success() && (s.preview || s.output.is_some()) {
                     s.phase = Phase::Done;
+                    if let Some(out) = &s.output {
+                        record_fit(out, s.params.ctx, &s.params.kv);
+                    }
                 } else {
                     s.phase = Phase::Failed;
                 }
@@ -309,21 +370,39 @@ fn watch_fit(state: &Shared) {
     }
 }
 
-fn api_serve(state: &Shared) -> Result<Value> {
+/// Serve the current fit, or — when the body names one — a fit from history.
+fn api_serve(req: &mut tiny_http::Request, state: &Shared) -> Result<Value> {
+    let mut body = String::new();
+    req.as_reader().read_to_string(&mut body).ok();
+    let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+
     let mut s = state.lock().unwrap();
-    let output = s.output.clone().ok_or_else(|| anyhow!("nothing fitted yet"))?;
+    let (output, ctx, kv) = match v["output"].as_str() {
+        Some(o) => (
+            o.to_string(),
+            v["ctx"].as_u64().unwrap_or(8192),
+            v["kv"].as_str().unwrap_or("f16").to_string(),
+        ),
+        None => (
+            s.output.clone().ok_or_else(|| anyhow!("nothing fitted yet"))?,
+            s.params.ctx,
+            s.params.kv.clone(),
+        ),
+    };
+    if !std::path::Path::new(&output).exists() {
+        return Err(anyhow!("{output} no longer exists"));
+    }
     if let Some(mut old) = s.serve_child.take() {
         let _ = old.kill();
     }
     let mut cmd = Command::new("llama-server");
     cmd.arg("-m")
         .arg(&output)
-        .args(["-c", &s.params.ctx.to_string(), "-ngl", "99", "--port", &LLAMA_PORT.to_string()])
+        .args(["-c", &ctx.to_string(), "-ngl", "99", "--port", &LLAMA_PORT.to_string()])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if s.params.kv != "f16" {
-        let kv = s.params.kv.clone();
+    if kv != "f16" {
         cmd.args(["--cache-type-k", &kv, "--cache-type-v", &kv]);
     }
     s.serve_child = Some(cmd.spawn().context("starting llama-server (is llama.cpp installed?)")?);

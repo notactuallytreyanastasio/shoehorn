@@ -161,7 +161,8 @@ Step by step:
    CLI. The browser opens by itself (`--no-open` to suppress, `--port` to
    move it off 7788).
 2. Type a model: a Hugging Face repo id, a URL, or a path to a local BF16
-   GGUF. The field suggests a few known-good repos. First fit of a repo
+   GGUF. The field suggests a few known-good repos and live-searches
+   Hugging Face as you type. First fit of a repo
    downloads the BF16, which for big models is tens of GB — the download
    resumes if interrupted and is cached in `~/.cache/shoehorn`.
 3. Pick how much conversation room you want. More context means a bigger KV
@@ -176,6 +177,10 @@ Step by step:
    that speaks GGUF (LM Studio, ollama, llama.cpp on another machine) can
    use it afterward.
 6. Ctrl-C in the terminal running `shoehorn ui` shuts everything down.
+
+Finished fits are remembered (in `~/.cache/shoehorn/fits.json`) and listed
+in a "Previous fits" card with one-click **Chat** buttons, so a model fitted
+last week doesn't need re-fitting to be served again.
 
 The advanced knobs (KV cache type, budget override, `--calibrate`) are under
 "More options". The page runs `shoehorn fit` as a subprocess and streams its
