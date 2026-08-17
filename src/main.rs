@@ -137,6 +137,21 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra: Vec<String>,
     },
+    /// Measure perplexity on held-out text (via llama-perplexity), optionally
+    /// against a baseline model, to verify what a fit cost in quality
+    Eval {
+        #[arg(short, long)]
+        model: PathBuf,
+        /// evaluation text (default: man pages disjoint from the auto-imatrix
+        /// calibration set)
+        #[arg(short = 'f', long)]
+        text: Option<PathBuf>,
+        /// second model to compare against, e.g. the BF16 source
+        #[arg(long)]
+        baseline: Option<PathBuf>,
+        #[arg(long, default_value_t = 2048)]
+        ctx: u64,
+    },
     /// Print detected GPU memory
     Vram,
     /// Open a local web page that drives the whole pipeline (no flags needed)
@@ -672,6 +687,45 @@ fn write_quantized(
     Ok(())
 }
 
+/// Run llama-perplexity on a text file and parse the final estimate, teeing
+/// its chunk-by-chunk progress through so long evals aren't silent.
+fn run_perplexity(model: &PathBuf, text: &PathBuf, ctx: u64) -> Result<f64> {
+    eprintln!("measuring perplexity: {} over {} ...", model.display(), text.display());
+    // Chunk progress prints on stdout and passes straight through; the load
+    // log and the final estimate are on stderr, captured for parsing.
+    let mut child = std::process::Command::new("llama-perplexity")
+        .arg("-m")
+        .arg(model)
+        .arg("-f")
+        .arg(text)
+        .args(["-ngl", "99", "-c", &ctx.to_string()])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("running llama-perplexity (is llama.cpp installed?)")?;
+    let mut captured = String::new();
+    {
+        use std::io::Read;
+        child.stderr.take().unwrap().read_to_string(&mut captured).ok();
+    }
+    let status = child.wait()?;
+    eprintln!();
+    let ppl = captured
+        .lines()
+        .rev()
+        .find_map(|l| l.split_once("Final estimate: PPL =").map(|(_, r)| r))
+        .and_then(|r| r.split_whitespace().next())
+        .and_then(|v| v.parse::<f64>().ok());
+    match ppl {
+        Some(p) => Ok(p),
+        None => {
+            let lines: Vec<&str> = captured.lines().collect();
+            let tail = lines[lines.len().saturating_sub(4)..].join("\n");
+            bail!("no final estimate in llama-perplexity output ({status}); last lines:\n{tail}")
+        }
+    }
+}
+
 /// Run llama.cpp briefly on a model and read back its real KV-cache and
 /// compute-buffer allocations from the verbose log.
 fn measure_runtime(model: &PathBuf, ctx: u64, kv: &str) -> Result<(u64, u64)> {
@@ -819,6 +873,20 @@ fn main() -> Result<()> {
             write_quantized(&output, &plan, &file, &im, None)?;
             if fit.calibrate {
                 calibrate_pass(&output, &plan, &fit, &file, &im)?;
+            }
+            Ok(())
+        }
+        Cmd::Eval { model, text, baseline, ctx } => {
+            let text = match text {
+                Some(p) => p,
+                None => fetch::heldout_text()?,
+            };
+            let ppl = run_perplexity(&model, &text, ctx)?;
+            println!("{}: PPL {ppl:.4}", model.display());
+            if let Some(b) = baseline {
+                let base = run_perplexity(&b, &text, ctx)?;
+                println!("{}: PPL {base:.4}", b.display());
+                println!("delta: {:+.2}% vs baseline", (ppl - base) / base * 100.0);
             }
             Ok(())
         }

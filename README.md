@@ -335,6 +335,7 @@ shoehorn quantize  -m <bf16.gguf> [-i <imatrix>] [fit flags] -o <out.gguf>
 shoehorn run       -m <model.gguf> [--ctx N] [--kv q8_0] [-- <llama-server args...>]
 shoehorn vram
 shoehorn ui        [--port 7788] [--no-open]
+shoehorn eval      -m <model.gguf> [-f <text>] [--baseline <other.gguf>] [--ctx N]
 ```
 
 `fit` accepts a local path, a Hugging Face repo id (it picks the BF16 file,
@@ -367,6 +368,18 @@ is passed through (`--port`, `--api-key`, ...).
 `vram` prints the detected device and its usable GPU memory: Metal's
 recommended working-set size on macOS, NVML's free VRAM on the first NVIDIA
 device elsewhere.
+
+`eval` wraps `llama-perplexity` so you can check what a fit actually cost:
+it measures perplexity on held-out text (by default man pages disjoint from
+the auto-imatrix calibration set) and, with `--baseline`, prints the delta
+against another model — typically the BF16 source:
+
+```
+$ shoehorn eval -m fitted.gguf --baseline model-bf16.gguf
+fitted.gguf: PPL 8.0719
+model-bf16.gguf: PPL 8.0132
+delta: +0.73% vs baseline
+```
 
 `ui` serves a local web page (and opens it) that drives the whole `fit`
 pipeline as a subprocess: pick a model, watch the budget gauge fill, then

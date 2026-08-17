@@ -154,6 +154,26 @@ fn download(url: &str, dir: &Path, name: &str) -> Result<PathBuf> {
     Ok(dest)
 }
 
+/// Held-out text for `shoehorn eval`: man pages disjoint from the
+/// calibration set, so a model whose imatrix came from auto_imatrix isn't
+/// evaluated on its own calibration data.
+pub fn heldout_text() -> Result<PathBuf> {
+    let path = cache_dir()?.join("heldout.txt");
+    if path.exists() {
+        return Ok(path);
+    }
+    let stdout = Command::new("sh")
+        .args(["-c", "(man grep | col -b; man tar | col -b; man sed | col -b) 2>/dev/null"])
+        .output()
+        .map(|o| o.stdout)
+        .unwrap_or_default();
+    if stdout.len() < 50_000 {
+        bail!("could not build held-out text from man pages; pass -f <textfile>");
+    }
+    std::fs::write(&path, &stdout)?;
+    Ok(path)
+}
+
 /// Generate an imatrix with llama-imatrix using man-page calibration text.
 /// Only attempted when the model comfortably fits the GPU working set.
 pub fn auto_imatrix(model: &Path, vram: Option<u64>) -> Result<Option<PathBuf>> {
