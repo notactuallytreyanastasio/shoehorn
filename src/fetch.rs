@@ -206,18 +206,32 @@ pub fn auto_imatrix(model: &Path, vram: Option<u64>) -> Result<Option<PathBuf>> 
     }
     let calib = cache_dir()?.join("calibration.txt");
     if !calib.exists() {
-        // Best-effort: no sh / no man pages (e.g. Windows, slim containers)
+        std::fs::create_dir_all(cache_dir()?)?;
+        // Community-standard mixed corpus first: on Qwen3-0.6B it measured
+        // ~1% lower neutral-text PPL than man-page calibration at the same
+        // budget. Man pages remain the offline fallback; neither working
         // just means no auto-imatrix, not a failed fit.
-        let stdout = Command::new("sh")
-            .args(["-c", "(man bash | col -b; man zshexpn | col -b) 2>/dev/null"])
-            .output()
-            .map(|o| o.stdout)
-            .unwrap_or_default();
-        if stdout.len() < 100_000 {
-            eprintln!("could not build calibration text; continuing without an imatrix");
-            return Ok(None);
+        let url = "https://gist.githubusercontent.com/bartowski1182/eb213dccb3571f863da82e99418f81e8/raw/calibration_datav3.txt";
+        let fetched = Command::new("curl")
+            .args(["-sL", "--fail", "--max-time", "30", "-o"])
+            .arg(&calib)
+            .arg(url)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !fetched || calib.metadata().map(|m| m.len() < 100_000).unwrap_or(true) {
+            let _ = std::fs::remove_file(&calib);
+            let stdout = Command::new("sh")
+                .args(["-c", "(man bash | col -b; man zshexpn | col -b) 2>/dev/null"])
+                .output()
+                .map(|o| o.stdout)
+                .unwrap_or_default();
+            if stdout.len() < 100_000 {
+                eprintln!("could not build calibration text; continuing without an imatrix");
+                return Ok(None);
+            }
+            std::fs::write(&calib, &stdout)?;
         }
-        std::fs::write(&calib, &stdout)?;
     }
     eprintln!("generating imatrix (one-time, a few minutes) ...");
     let status = Command::new("llama-imatrix")

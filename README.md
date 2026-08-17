@@ -411,9 +411,13 @@ degenerate imatrix can't zero out the fit. For 3D expert tensors (MoE), an
 imatrix covering `ne0 × n_expert` is sliced per expert; one covering only
 `ne0` is broadcast.
 
-Calibration text matters less than having an imatrix at all. A few hundred KB
-of mixed prose and code is the community norm. The test suite here uses
-concatenated man pages and holds out different text for evaluation.
+Calibration text matters less than having an imatrix at all, but it does
+matter at the margin: auto-generation downloads the community-standard
+`calibration_datav3` mixed corpus (cached), falling back to concatenated man
+pages offline. Measured on Qwen3-0.6B at an identical 1.75 GiB budget, the
+mixed corpus cost +1.84% perplexity vs BF16 on neutral prose against +2.81%
+for man-page calibration — better generalization for one download. The test
+suite holds out different text from whatever calibrated.
 
 ## Results
 
