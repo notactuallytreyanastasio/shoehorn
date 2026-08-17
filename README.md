@@ -172,11 +172,14 @@ Step by step:
    (`fit --dry-run` underneath), then offers **Fit it for real**. Downloads
    render as a progress bar; **Stop** aborts cleanly, and reloading the page
    mid-fit picks the run back up.
-5. **Chat with it** starts llama-server on port 8093 and opens its chat page
+5. **Measure the cost** (optional) runs `shoehorn eval` on the fit against
+   the original model and reports the perplexity delta right in the card —
+   the honest answer to "how much quality did I give up?"
+6. **Chat with it** starts llama-server on port 8093 and opens its chat page
    once the model is loaded. The fitted GGUF is a normal file — anything
    that speaks GGUF (LM Studio, ollama, llama.cpp on another machine) can
    use it afterward.
-6. Ctrl-C in the terminal running `shoehorn ui` shuts everything down.
+7. Ctrl-C in the terminal running `shoehorn ui` shuts everything down.
 
 Finished fits are remembered (in `~/.cache/shoehorn/fits.json`) and listed
 in a "Previous fits" card with one-click **Chat** buttons, so a model fitted

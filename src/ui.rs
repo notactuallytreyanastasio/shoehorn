@@ -38,6 +38,8 @@ impl Phase {
 struct FitParams {
     ctx: u64,
     kv: String,
+    /// original model input (path / repo id / URL), for eval --baseline
+    spec: String,
 }
 
 struct State {
@@ -101,6 +103,10 @@ fn route(req: &mut tiny_http::Request, state: &Shared) -> tiny_http::Response<st
             Err(e) => json_resp(400, &json!({ "error": e.to_string() })),
         },
         (true, "/api/serve") => match api_serve(req, state) {
+            Ok(v) => json_resp(200, &v),
+            Err(e) => json_resp(400, &json!({ "error": e.to_string() })),
+        },
+        (true, "/api/eval") => match api_eval(state) {
             Ok(v) => json_resp(200, &v),
             Err(e) => json_resp(400, &json!({ "error": e.to_string() })),
         },
@@ -257,7 +263,7 @@ fn api_fit(req: &mut tiny_http::Request, state: &Shared) -> Result<Value> {
     if preview {
         cmd.arg("--dry-run");
     }
-    let mut child = cmd.spawn().context("starting the fit")?;
+    let child = cmd.spawn().context("starting the fit")?;
 
     s.phase = Phase::Running;
     s.log = vec![format!(
@@ -267,8 +273,46 @@ fn api_fit(req: &mut tiny_http::Request, state: &Shared) -> Result<Value> {
     s.output = None;
     s.cancelled = false;
     s.preview = preview;
-    s.params = FitParams { ctx, kv };
+    s.params = FitParams { ctx, kv, spec: model };
+    attach_job(s, child, state);
+    Ok(json!({ "ok": true }))
+}
 
+/// Run the fitted model and its original source through `shoehorn eval` to
+/// put a perplexity number on what the fit cost.
+fn api_eval(state: &Shared) -> Result<Value> {
+    let mut s = state.lock().unwrap();
+    if s.phase == Phase::Running {
+        return Err(anyhow!("something is already running"));
+    }
+    let output = s.output.clone().ok_or_else(|| anyhow!("nothing fitted yet"))?;
+    let spec = s.params.spec.clone();
+    if spec.is_empty() {
+        return Err(anyhow!("the original model for this fit is unknown"));
+    }
+    // Both models get loaded onto the GPU in turn; make room first.
+    if let Some(mut old) = s.serve_child.take() {
+        let _ = old.kill();
+    }
+    let exe = std::env::current_exe()?;
+    let mut cmd = Command::new(exe);
+    cmd.arg("eval")
+        .args(["-m", &output, "--baseline", &spec])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let child = cmd.spawn().context("starting the eval")?;
+    s.phase = Phase::Running;
+    s.log = vec![format!("$ shoehorn eval -m {output} --baseline {spec}")];
+    s.cancelled = false;
+    s.preview = false;
+    attach_job(s, child, state);
+    Ok(json!({ "ok": true }))
+}
+
+/// Wire a spawned subprocess into the shared job state: stream pumps for
+/// both pipes plus the completion watcher.
+fn attach_job(mut s: std::sync::MutexGuard<'_, State>, mut child: Child, state: &Shared) {
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
     s.fit_child = Some(child);
@@ -280,7 +324,6 @@ fn api_fit(req: &mut tiny_http::Request, state: &Shared) -> Result<Value> {
     }
     let st = state.clone();
     std::thread::spawn(move || watch_fit(&st));
-    Ok(json!({ "ok": true }))
 }
 
 /// Feed a subprocess stream into the shared log, splitting on \n and \r so

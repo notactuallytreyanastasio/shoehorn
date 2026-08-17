@@ -140,15 +140,17 @@ enum Cmd {
     /// Measure perplexity on held-out text (via llama-perplexity), optionally
     /// against a baseline model, to verify what a fit cost in quality
     Eval {
+        /// model to score: local path, HF repo id, or URL (like fit)
         #[arg(short, long)]
-        model: PathBuf,
+        model: String,
         /// evaluation text (default: man pages disjoint from the auto-imatrix
         /// calibration set)
         #[arg(short = 'f', long)]
         text: Option<PathBuf>,
-        /// second model to compare against, e.g. the BF16 source
+        /// second model to compare against, e.g. the BF16 source; also takes
+        /// a repo id or URL (cache hit if fit downloaded it already)
         #[arg(long)]
-        baseline: Option<PathBuf>,
+        baseline: Option<String>,
         #[arg(long, default_value_t = 2048)]
         ctx: u64,
     },
@@ -899,6 +901,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::Eval { model, text, baseline, ctx } => {
+            let model = fetch::resolve(&model)?.model;
             let text = match text {
                 Some(p) => p,
                 None => fetch::heldout_text()?,
@@ -906,6 +909,7 @@ fn main() -> Result<()> {
             let ppl = run_perplexity(&model, &text, ctx)?;
             println!("{}: PPL {ppl:.4}", model.display());
             if let Some(b) = baseline {
+                let b = fetch::resolve(&b)?.model;
                 let base = run_perplexity(&b, &text, ctx)?;
                 println!("{}: PPL {base:.4}", b.display());
                 println!("delta: {:+.2}% vs baseline", (ppl - base) / base * 100.0);

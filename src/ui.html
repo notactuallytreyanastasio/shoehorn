@@ -302,8 +302,10 @@
   <section class="card" id="done">
     <div class="eyebrow" style="color:var(--thread)">Fitted</div>
     <div class="measure" id="done-line"></div>
+    <div class="measure" id="cost-line" style="display:none;color:var(--thread)"></div>
     <div class="actions" style="margin-top:6px">
       <button class="primary" id="chat">Chat with it</button>
+      <button class="quiet" id="measure">Measure the cost</button>
       <span class="hint" id="chat-note"></span>
     </div>
   </section>
@@ -412,20 +414,42 @@ async function poll() {
       $("status-line").textContent = "done";
       loadHistory();
       $("done").style.display = "block";
-      $("done-line").innerHTML = result
-        ? `<strong>${result.bpw} bits per weight</strong>, ${result.pct}% of your budget used, ${result.slack} to spare<br>${r.output}`
-        : r.output;
+      if (evalRunning) {
+        evalRunning = false;
+        $("done-line").innerHTML = savedDone;
+        const delta = clientLog.find(l => l.startsWith("delta:"));
+        $("cost-line").style.display = "block";
+        $("cost-line").textContent = delta
+          ? `quality cost: ${delta.replace("delta: ", "").replace(" vs baseline", "")} perplexity vs the original`
+          : "measurement finished — details under Show the work";
+      } else {
+        $("cost-line").style.display = "none";
+        $("done-line").innerHTML = result
+          ? `<strong>${result.bpw} bits per weight</strong>, ${result.pct}% of your budget used, ${result.slack} to spare<br>${r.output}`
+          : r.output;
+      }
     } else {
       $("status-line").textContent = "previewed — nothing written";
       $("previewed").style.display = "block";
     }
   } else if (r.state === "failed") {
+    evalRunning = false;
     $("failed").style.display = "block";
     $("fail-line").textContent = clientLog.slice(-4).join("\n");
   } else {
+    evalRunning = false;
     $("status-line").textContent = "stopped";
   }
 }
+
+let evalRunning = false, savedDone = "";
+$("measure").addEventListener("click", async () => {
+  const r = await fetch("/api/eval", { method: "POST" });
+  if (!r.ok) { alert((await r.json()).error); return; }
+  savedDone = $("done-line").innerHTML;
+  evalRunning = true;
+  startWatching();
+});
 
 function updateDl(last) {
   const m = last && isProgress(last) ? last.match(/([\d.]+)%\s*$/) : null;
