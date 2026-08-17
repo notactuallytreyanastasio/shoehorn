@@ -4080,6 +4080,127 @@
       "created_at": "2026-08-17T00:01:00.907010-04:00",
       "updated_at": "2026-08-17T00:01:00.907010-04:00",
       "metadata_json": "{\"branch\":\"master\",\"confidence\":95}"
+    },
+    {
+      "id": 384,
+      "change_id": "24645f23-714f-4e34-a7fd-cb8f3fd31afa",
+      "node_type": "action",
+      "title": "Overnight loop iter 1: shoehorn eval (verified +0.73% PPL fitted-vs-BF16 on 0.6B), windows-latest added to CI matrix",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T00:21:17.121420-04:00",
+      "updated_at": "2026-08-17T00:21:17.121420-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 385,
+      "change_id": "3401864c-a587-4ea1-8434-09e30df282eb",
+      "node_type": "action",
+      "title": "Overnight iter 2: AMD rocm-smi probe fallback (parser unit-tested, no hardware), probe source per backend; 11 tests green",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T00:28:23.109795-04:00",
+      "updated_at": "2026-08-17T00:28:23.109795-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90}"
+    },
+    {
+      "id": 386,
+      "change_id": "a97d04e7-5b37-467e-949b-30082375bf82",
+      "node_type": "action",
+      "title": "Overnight iter 3: UI model search (HF proxy endpoint) + fit history (fits.json, serve-from-history) — live-tested incl. llama-server on history entry",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T00:31:16.981051-04:00",
+      "updated_at": "2026-08-17T00:31:16.981051-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 387,
+      "change_id": "997c1ecc-6866-40a0-8c6d-f4850812327d",
+      "node_type": "action",
+      "title": "Overnight iter 4: metadata roundtrip test (all Value variants), requantization + oversized-ctx warnings (both verified firing); 12 tests",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T00:53:47.448601-04:00",
+      "updated_at": "2026-08-17T00:53:47.448601-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 388,
+      "change_id": "97ee55c1-c3d8-46d6-9ed7-7525d9798aca",
+      "node_type": "action",
+      "title": "Overnight iter 5: demo refactored onto eval (full ladder re-run verified), 5 new troubleshooting entries",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T01:16:40.965068-04:00",
+      "updated_at": "2026-08-17T01:16:40.965068-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 389,
+      "change_id": "93404d55-76b5-424a-a20a-e93c6e1a297d",
+      "node_type": "action",
+      "title": "Overnight iter 6: homebrew-shoehorn tap repo (binary formula, mac arm64 + linux x64) — brew install verified cold on this machine",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T01:38:11.173323-04:00",
+      "updated_at": "2026-08-17T01:38:11.173323-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":93}"
+    },
+    {
+      "id": 390,
+      "change_id": "6ab0c0b7-e821-4beb-b83b-d2b511296434",
+      "node_type": "action",
+      "title": "Overnight iter 7: select_model_files extracted + unit-tested (bf16>f16>f32, shard expansion), F32 fallback added, stale split-refusal doc fixed; 15 tests",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T02:00:23.102533-04:00",
+      "updated_at": "2026-08-17T02:00:23.102533-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 391,
+      "change_id": "95112401-1363-47af-8209-9980ed84a725",
+      "node_type": "action",
+      "title": "Overnight iter 8: eval resolves specs like fit; UI Measure-the-cost button (kills llama-server first, streams eval, shows delta) — verified live: +1.62% on 0.6B refit",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T02:24:09.756038-04:00",
+      "updated_at": "2026-08-17T02:24:09.756038-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 392,
+      "change_id": "35bb2c5e-fb82-43a8-b0d0-1f07ccafceeb",
+      "node_type": "action",
+      "title": "Overnight iter 9: --version flag, 390px mobile audit (passed; flex-wrap hardening for dense states)",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T02:45:48.942567-04:00",
+      "updated_at": "2026-08-17T02:45:48.942567-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":90}"
+    },
+    {
+      "id": 393,
+      "change_id": "5edca5a0-bbe9-4f76-ba56-7168562aa5ab",
+      "node_type": "action",
+      "title": "Overnight iter 10: calibration corpus A/B (v3 wins neutral text +1.84% vs +2.81% cost); auto_imatrix now downloads v3 with man fallback, live-verified",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T03:13:32.941059-04:00",
+      "updated_at": "2026-08-17T03:13:32.941059-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":93}"
+    },
+    {
+      "id": 394,
+      "change_id": "579c4759-3e64-4868-8a5a-24aad8242b42",
+      "node_type": "outcome",
+      "title": "v0.2.0 released: 3-platform binaries green, formula bumped, brew upgrade verified 0.1.0->0.2.0 on this machine; 11 overnight iterations shipped",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T18:53:34.165425-04:00",
+      "updated_at": "2026-08-17T18:53:34.165425-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":95}"
     }
   ],
   "edges": [
@@ -8042,6 +8163,127 @@
       "weight": 1.0,
       "rationale": "release verified end to end",
       "created_at": "2026-08-17T00:01:00.915559-04:00"
+    },
+    {
+      "id": 374,
+      "from_node_id": 380,
+      "to_node_id": 384,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "24645f23-714f-4e34-a7fd-cb8f3fd31afa",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T00:21:17.130911-04:00"
+    },
+    {
+      "id": 375,
+      "from_node_id": 380,
+      "to_node_id": 385,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "3401864c-a587-4ea1-8434-09e30df282eb",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T00:28:23.117374-04:00"
+    },
+    {
+      "id": 376,
+      "from_node_id": 380,
+      "to_node_id": 386,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "a97d04e7-5b37-467e-949b-30082375bf82",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T00:31:16.988352-04:00"
+    },
+    {
+      "id": 377,
+      "from_node_id": 380,
+      "to_node_id": 387,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "997c1ecc-6866-40a0-8c6d-f4850812327d",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T00:53:47.456316-04:00"
+    },
+    {
+      "id": 378,
+      "from_node_id": 380,
+      "to_node_id": 388,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "97ee55c1-c3d8-46d6-9ed7-7525d9798aca",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T01:16:40.973123-04:00"
+    },
+    {
+      "id": 379,
+      "from_node_id": 380,
+      "to_node_id": 389,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "93404d55-76b5-424a-a20a-e93c6e1a297d",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T01:38:11.180877-04:00"
+    },
+    {
+      "id": 380,
+      "from_node_id": 380,
+      "to_node_id": 390,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "6ab0c0b7-e821-4beb-b83b-d2b511296434",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T02:00:23.110216-04:00"
+    },
+    {
+      "id": 381,
+      "from_node_id": 380,
+      "to_node_id": 391,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "95112401-1363-47af-8209-9980ed84a725",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T02:24:09.764730-04:00"
+    },
+    {
+      "id": 382,
+      "from_node_id": 380,
+      "to_node_id": 392,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "35bb2c5e-fb82-43a8-b0d0-1f07ccafceeb",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T02:45:48.950692-04:00"
+    },
+    {
+      "id": 383,
+      "from_node_id": 380,
+      "to_node_id": 393,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "5edca5a0-bbe9-4f76-ba56-7168562aa5ab",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight improvement loop",
+      "created_at": "2026-08-17T03:13:32.948860-04:00"
+    },
+    {
+      "id": 384,
+      "from_node_id": 380,
+      "to_node_id": 394,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "579c4759-3e64-4868-8a5a-24aad8242b42",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "overnight goal outcome",
+      "created_at": "2026-08-17T18:53:34.174185-04:00"
     }
   ],
   "documents": [
