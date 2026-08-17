@@ -88,9 +88,10 @@ cargo install --path .
 shoehorn fit unsloth/Qwen3-4B-GGUF --serve
 ```
 
-The VRAM probe reads the first NVIDIA device's free memory through NVML,
-which ships with the regular driver — nothing extra to install. AMD and
-Intel GPUs aren't probed yet; pass `--budget`.
+The VRAM probe reads the first NVIDIA device's free memory through NVML
+(ships with the regular driver — nothing extra to install), falling back to
+`rocm-smi` for AMD. Intel GPUs aren't probed yet; pass `--budget`. On AMD,
+use a Vulkan or ROCm build of llama.cpp.
 
 **Windows (NVIDIA)**
 
@@ -525,9 +526,11 @@ perplexity is strong evidence the encoders are bit-compatible.
   version and flash-attention path; `--reserve` absorbs the difference. A
   `--calibrate` mode that launches llama.cpp once and reads back actual
   allocations would replace the guess with a measurement.
-- The probe covers Metal (macOS) and NVML (NVIDIA on Linux/Windows). AMD and
-  Intel GPUs need an explicit `--budget`. On NVIDIA the probe reports the
-  first device's *free* VRAM, so close the big things before fitting.
+- The probe covers Metal (macOS), NVML (NVIDIA on Linux/Windows), and
+  rocm-smi (AMD on Linux, parse-based and not yet exercised on real
+  hardware). Intel GPUs need an explicit `--budget`. Off-macOS the probe
+  reports the first device's *free* VRAM, so close the big things before
+  fitting. Multi-GPU boxes are budgeted for one device.
 - Embedded imatrix stats, attention-sink tensors, and other exotic GGUF
   extras are passed through untouched but not exploited.
 

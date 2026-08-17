@@ -265,9 +265,9 @@ fn compute_budget(args: &FitArgs, h: &Hyper) -> Result<Budget> {
             (ram * 74 / 100, format!("--target {t} (74% of RAM, macOS working-set approximation)"))
         }
         (None, None) => {
-            let (b, name) = vram::probe()
-                .ok_or_else(|| anyhow!("no probeable GPU (Metal or NVIDIA) found; pass --budget"))?;
-            (b, format!("{} ({name})", vram::probe_source()))
+            let (b, name, source) = vram::probe()
+                .ok_or_else(|| anyhow!("no probeable GPU (Metal, NVIDIA, or AMD) found; pass --budget"))?;
+            (b, format!("{source} ({name})"))
         }
     };
     let kv_elem = kv_bytes_per_element(&args.kv)?;
@@ -850,8 +850,10 @@ fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Vram => {
             match vram::probe() {
-                Some((b, name)) => println!("{name}: {} usable for GPU working set", fmt_size(b)),
-                None => println!("no probeable GPU (Metal or NVIDIA) found"),
+                Some((b, name, source)) => {
+                    println!("{name}: {} usable for GPU working set ({source})", fmt_size(b))
+                }
+                None => println!("no probeable GPU (Metal, NVIDIA, or AMD) found"),
             }
             Ok(())
         }
@@ -897,7 +899,7 @@ fn main() -> Result<()> {
                 Some(p) => Some(p),
                 None => match resolved.imatrix {
                     Some(p) => Some(p),
-                    None => fetch::auto_imatrix(&resolved.model, vram::probe().map(|(b, _)| b))?,
+                    None => fetch::auto_imatrix(&resolved.model, vram::probe().map(|(b, ..)| b))?,
                 },
             };
             let args = FitArgs {

@@ -130,8 +130,8 @@ fn api_info() -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
     json_resp(
         200,
         &json!({
-            "vram": probe.as_ref().map(|(b, _)| b),
-            "device": probe.as_ref().map(|(_, n)| n),
+            "vram": probe.as_ref().map(|(b, ..)| b),
+            "device": probe.as_ref().map(|(_, n, _)| n),
             "llama": llama,
         }),
     )
