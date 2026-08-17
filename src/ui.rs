@@ -211,14 +211,14 @@ fn read_history() -> Vec<Value> {
         .collect()
 }
 
-fn record_fit(output: &str, ctx: u64, kv: &str) {
+fn record_fit(output: &str, ctx: u64, kv: &str, spec: &str) {
     let Some(path) = history_path() else { return };
     let abs = std::fs::canonicalize(output)
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| output.to_string());
     let mut list = read_history();
     list.retain(|e| e["output"].as_str() != Some(abs.as_str()));
-    list.insert(0, json!({ "output": abs, "ctx": ctx, "kv": kv }));
+    list.insert(0, json!({ "output": abs, "ctx": ctx, "kv": kv, "model": spec }));
     list.truncate(12);
     let _ = std::fs::write(path, serde_json::to_vec(&list).unwrap_or_default());
 }
@@ -396,7 +396,7 @@ fn watch_fit(state: &Shared) {
                 } else if status.success() && (s.preview || s.output.is_some()) {
                     s.phase = Phase::Done;
                     if let Some(out) = &s.output {
-                        record_fit(out, s.params.ctx, &s.params.kv);
+                        record_fit(out, s.params.ctx, &s.params.kv, &s.params.spec);
                     }
                 } else {
                     s.phase = Phase::Failed;

@@ -561,7 +561,7 @@ async function loadHistory() {
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = f.output.split("/").pop();
-      name.title = f.output;
+      name.title = f.model ? `${f.output}\nfitted from ${f.model}` : f.output;
       const meta = document.createElement("span");
       meta.className = "meta";
       meta.textContent = `ctx ${f.ctx} · ${f.kv}`;

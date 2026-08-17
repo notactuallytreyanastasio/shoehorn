@@ -269,3 +269,48 @@ severely degraded no matter who quantizes it — these formats exist for 7B+.
   still exits 0; always verify magic bytes after download.
 - The `metal` crate pulls the deprecated `block` crate (future-incompat
   warning) — harmless today, worth swapping for `objc2-metal` eventually.
+
+## D14. Distribution, cross-platform, the web UI, and an overnight loop (2026-08-15..17)
+
+Three sessions compressed: non-Apple hardware support, a web UI for people
+who don't want flags, packaged distribution, and a night of autonomous
+hardening.
+
+- **Cross-platform**: `metal` is now target-gated; elsewhere the probe tries
+  NVML (free VRAM, device 0), then `rocm-smi --json`. Windows compiles and
+  passes CI but hasn't touched real hardware. serve() spawns instead of
+  exec'ing off-unix; the auto-imatrix shell-out degrades instead of failing
+  where `sh` is missing.
+- **`shoehorn ui`**: tiny_http serving one embedded page; every action runs
+  the CLI as a subprocess with output streamed to the browser, so the UI
+  cannot drift from the CLI. Budget renders as a tape measure. Preview
+  (`fit --dry-run`), live HF model search (server-proxied), persistent fit
+  history with one-click re-serve, download progress, post-fit
+  "Measure the cost" (eval vs the original, llama-server killed first to
+  make GPU room).
+- **Distribution**: tag-triggered release workflow (mac arm64 / linux x64 /
+  windows x64), a Homebrew tap (`brew install
+  notactuallytreyanastasio/shoehorn/shoehorn`), crates.io-ready packaging
+  with an include-list so testdata never enters the crate.
+- **Trust tooling**: `shoehorn eval` (llama-perplexity wrapper, `--baseline`
+  prints the delta); e2e CI test that synthesizes a BF16 GGUF and fits it
+  into a deliberately tight budget; full metadata roundtrip test; guardrail
+  warnings for requantized sources and `--ctx` past training context.
+- **Calibration A/B** (0.6B, identical 1.75 GiB budgets): the community
+  `calibration_datav3` corpus cost +1.84% neutral-prose PPL vs BF16 against
+  +2.81% for man-page calibration; man pages kept only a 0.2pp edge on
+  their own distribution. auto-imatrix now downloads v3, man pages offline.
+
+### Gotchas hit along the way
+
+- `llama-perplexity` prints chunk progress on stdout but `Final estimate:`
+  on stderr; capture accordingly.
+- serde_json maps iterate sorted, not insertion-ordered: substring-matching
+  rocm-smi keys found "Card model" (a hex id) before "Card series"; name
+  lookups need an explicit preference order.
+- indicatif hides its bars when stderr isn't a tty, so a piped `fit` goes
+  silent for minutes; the UI streams the subprocess's plain lines instead.
+- curl's `--progress-bar` emits `\r`-separated updates even when piped —
+  split subprocess streams on both `\n` and `\r`, and collapse consecutive
+  progress lines server-side or a 60 GB pull is thousands of log entries.
+- Qwen3-0.6B's `context_length` is 40960 (YaRN), not the 32768 you'd guess.
