@@ -33,7 +33,7 @@ fn progress(len: u64, msg: &'static str) -> ProgressBar {
 }
 
 #[derive(Parser)]
-#[command(name = "shoehorn", about = "Quantize a BF16 GGUF with an imatrix to exactly fit your VRAM, then run it with llama.cpp")]
+#[command(name = "shoehorn", version, about = "Quantize a BF16 GGUF with an imatrix to exactly fit your VRAM, then run it with llama.cpp")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,

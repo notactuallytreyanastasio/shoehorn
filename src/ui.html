@@ -103,7 +103,7 @@
     padding: 12px 18px;
   }
   button:disabled { opacity: 0.45; cursor: default; }
-  .actions { display: flex; gap: 12px; margin-top: 22px; align-items: center; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; align-items: center; }
   /* ---- the fitting: status, tape gauge, log ---- */
   #fitting { display: none; }
   .status { display: flex; gap: 10px; align-items: center; font-family: var(--mono); font-size: 14px; color: var(--ink-soft); min-height: 24px; }
@@ -176,7 +176,7 @@
   #previewed { display: none; border-left: 4px solid var(--tape-deep); }
   #previewed p { font-size: 14px; color: var(--ink-soft); margin: 6px 0 14px; }
   #fits { display: flex; flex-direction: column; gap: 8px; }
-  .fit-row { display: flex; align-items: center; gap: 12px; font: 13px var(--mono); }
+  .fit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font: 13px var(--mono); }
   .fit-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fit-row .meta { color: var(--ink-soft); flex: none; }
   .fit-row button { padding: 7px 14px; font-size: 13px; flex: none; }
