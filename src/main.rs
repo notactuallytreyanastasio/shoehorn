@@ -426,6 +426,26 @@ fn build_plan(args: &FitArgs, file: &Model) -> Result<Plan> {
         h.arch,
         args.ctx
     );
+    let already_quantized = file
+        .tensors
+        .iter()
+        .filter(|t| !matches!(t.ty, GgmlType::F16 | GgmlType::Bf16 | GgmlType::F32))
+        .count();
+    if already_quantized * 2 > file.tensors.len() {
+        eprintln!(
+            "warning: source is already quantized; re-quantizing compounds the loss — \
+             start from the BF16/F16 GGUF if one exists"
+        );
+    }
+    if let Some(train_ctx) = file.kv(&format!("{}.context_length", h.arch)).and_then(Value::as_u64)
+        && args.ctx > train_ctx
+    {
+        eprintln!(
+            "warning: --ctx {} exceeds the model's training context {train_ctx}; \
+             budgeting for it anyway",
+            args.ctx
+        );
+    }
     eprintln!(
         "budget: {} usable ({}) - {} KV - {} compute est - {} reserve = {} for weights",
         fmt_size(budget.usable_vram),

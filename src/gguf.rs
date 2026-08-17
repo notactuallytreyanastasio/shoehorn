@@ -137,7 +137,7 @@ impl GgmlType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     U8(u8),
     I8(i8),

@@ -66,6 +66,54 @@ fn synth_model(path: &PathBuf) {
     .unwrap();
 }
 
+/// Every Value variant survives a write→read roundtrip, including arrays —
+/// exotic metadata from real repos must pass through fits untouched.
+#[test]
+fn gguf_metadata_roundtrips_every_value_type() {
+    let dir = std::env::temp_dir().join(format!("shoehorn-kv-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("kv.gguf");
+    let kvs: Vec<(String, Value)> = vec![
+        ("general.architecture".into(), Value::Str("llama".into())),
+        ("t.u8".into(), Value::U8(7)),
+        ("t.i8".into(), Value::I8(-7)),
+        ("t.u16".into(), Value::U16(300)),
+        ("t.i16".into(), Value::I16(-300)),
+        ("t.u32".into(), Value::U32(70000)),
+        ("t.i32".into(), Value::I32(-70000)),
+        ("t.f32".into(), Value::F32(0.25)),
+        ("t.bool".into(), Value::Bool(true)),
+        ("t.str".into(), Value::Str("hé\u{1F980}".into())),
+        ("t.u64".into(), Value::U64(1 << 40)),
+        ("t.i64".into(), Value::I64(-(1 << 40))),
+        ("t.f64".into(), Value::F64(0.125)),
+        (
+            "t.arr.str".into(),
+            Value::Arr(8, vec![Value::Str("a".into()), Value::Str("b".into())]),
+        ),
+        (
+            "t.arr.f32".into(),
+            Value::Arr(6, vec![Value::F32(1.5), Value::F32(-2.5)]),
+        ),
+    ];
+    let infos = vec![TensorInfo {
+        name: "output_norm.weight".into(),
+        dims: vec![32],
+        ty: GgmlType::F32,
+        offset: 0,
+        shard: 0,
+    }];
+    let out = std::fs::File::create(&path).unwrap();
+    crate::gguf::write_streaming(out, &kvs, &infos, 32, |_| Ok(vec![0u8; 32 * 4])).unwrap();
+
+    let back = Model::open(&path).unwrap();
+    for (k, v) in &kvs {
+        assert_eq!(back.kv(k), Some(v), "kv {k} did not roundtrip");
+    }
+    assert_eq!(back.tensors.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn pipeline_fits_a_synthetic_model_into_a_tight_budget() {
     let dir = std::env::temp_dir().join(format!("shoehorn-e2e-{}", std::process::id()));
