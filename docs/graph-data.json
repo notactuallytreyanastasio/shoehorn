@@ -4069,6 +4069,17 @@
       "created_at": "2026-08-16T23:58:53.354267-04:00",
       "updated_at": "2026-08-16T23:58:53.354267-04:00",
       "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 383,
+      "change_id": "c5c0a85f-6e91-4094-807c-a0d75e1c394f",
+      "node_type": "outcome",
+      "title": "v0.1.0 release live: 3 platform assets built green (incl. first real Windows build); downloaded darwin binary smoke-tested cold (vram probe works)",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T00:01:00.907010-04:00",
+      "updated_at": "2026-08-17T00:01:00.907010-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":95}"
     }
   ],
   "edges": [
@@ -8020,6 +8031,17 @@
       "weight": 1.0,
       "rationale": "verification evidence",
       "created_at": "2026-08-16T23:58:53.362158-04:00"
+    },
+    {
+      "id": 373,
+      "from_node_id": 381,
+      "to_node_id": 383,
+      "from_change_id": "51171625-63eb-4d63-ab01-6ba17aa65a90",
+      "to_change_id": "c5c0a85f-6e91-4094-807c-a0d75e1c394f",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "release verified end to end",
+      "created_at": "2026-08-17T00:01:00.915559-04:00"
     }
   ],
   "documents": [
