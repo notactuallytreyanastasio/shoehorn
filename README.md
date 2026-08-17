@@ -68,11 +68,11 @@ or build it with a Rust toolchain as shown below.
 **macOS (Apple Silicon)**
 
 ```sh
-brew install llama.cpp
-cargo install --path .     # or: cargo build --release
-
+brew install notactuallytreyanastasio/shoehorn/shoehorn   # prebuilt binary + llama.cpp
 shoehorn fit unsloth/Qwen3-4B-GGUF --serve
 ```
+
+Or from source: `brew install llama.cpp` then `cargo install --path .`
 
 **Linux (NVIDIA)**
 
