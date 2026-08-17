@@ -344,8 +344,9 @@ shoehorn ui        [--port 7788] [--no-open]
 shoehorn eval      -m <model.gguf> [-f <text>] [--baseline <other.gguf>] [--ctx N]
 ```
 
-`fit` accepts a local path, a Hugging Face repo id (it picks the BF16 file,
-refuses split GGUFs, and grabs any imatrix in the repo), or a direct URL.
+`fit` accepts a local path, a Hugging Face repo id (it picks the largest
+BF16 file — falling back to F16, then F32 — downloads every shard of a
+split model, and grabs any imatrix in the repo), or a direct URL.
 Downloads land in `~/.cache/shoehorn` and resume if interrupted. Without an
 imatrix, it generates one with `llama-imatrix` when the model fits the GPU.
 `--dry-run` stops after printing the solved plan — like `plan`, but with

@@ -17,6 +17,37 @@ pub fn cache_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".cache/shoehorn"))
 }
 
+/// Choose which repo files make up the model: the largest BF16 GGUF, then
+/// F16, then F32 — expanded to every sibling shard (sorted) when the pick is
+/// a llama.cpp-style split (`-00001-of-0000N.gguf`). Returns the paths and
+/// their total size.
+fn select_model_files(entries: &[(String, u64)]) -> Result<(Vec<String>, u64)> {
+    let pick = |pred: &dyn Fn(&str) -> bool| -> Option<&(String, u64)> {
+        entries
+            .iter()
+            .filter(|(p, _)| p.ends_with(".gguf") && pred(&p.to_lowercase()))
+            .max_by_key(|(_, s)| *s)
+    };
+    let model_file = pick(&|p| p.contains("bf16"))
+        .or_else(|| pick(&|p| p.contains("f16") && !p.contains("bf16")))
+        .or_else(|| pick(&|p| p.contains("f32")))
+        .ok_or_else(|| anyhow!("no BF16/F16/F32 GGUF"))?;
+    let stem = &model_file.0;
+    let shards: Vec<&(String, u64)> = if let Some((prefix, _)) = stem.split_once("-of-") {
+        let prefix = prefix.rsplit_once('-').map(|(p, _)| p).unwrap_or(stem);
+        let mut v: Vec<&(String, u64)> = entries
+            .iter()
+            .filter(|(p, _)| p.starts_with(prefix) && p.contains("-of-") && p.ends_with(".gguf"))
+            .collect();
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v
+    } else {
+        vec![model_file]
+    };
+    let total = shards.iter().map(|(_, s)| s).sum();
+    Ok((shards.into_iter().map(|(p, _)| p.clone()).collect(), total))
+}
+
 pub fn resolve(spec: &str) -> Result<Resolved> {
     let p = Path::new(spec);
     if p.exists() {
@@ -63,51 +94,28 @@ fn hf_repo(owner: &str, repo: &str) -> Result<Resolved> {
         })
         .collect();
 
-    let pick = |pred: &dyn Fn(&str) -> bool| -> Option<&(String, u64)> {
-        entries
-            .iter()
-            .filter(|(p, _)| p.ends_with(".gguf") && pred(&p.to_lowercase()))
-            .max_by_key(|(_, s)| *s)
-    };
-    let model_file = pick(&|p| p.contains("bf16"))
-        .or_else(|| pick(&|p| p.contains("f16") && !p.contains("bf16")))
-        .ok_or_else(|| {
-            anyhow!(
-                "no BF16/F16 GGUF in {owner}/{repo}; files: {}",
-                entries
-                    .iter()
-                    .filter(|(p, _)| p.ends_with(".gguf"))
-                    .map(|(p, _)| p.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        })?;
-    // A split model means downloading every sibling shard; Model::open then
-    // reads them as one. The first shard is what we hand back.
-    let stem = model_file.0.clone();
-    let shard_files: Vec<&(String, u64)> = if let Some((prefix, _)) = stem.split_once("-of-") {
-        let prefix = prefix.rsplit_once('-').map(|(p, _)| p).unwrap_or(&stem);
-        let mut v: Vec<&(String, u64)> = entries
-            .iter()
-            .filter(|(p, _)| p.starts_with(prefix) && p.contains("-of-") && p.ends_with(".gguf"))
-            .collect();
-        v.sort_by(|a, b| a.0.cmp(&b.0));
-        v
-    } else {
-        vec![model_file]
-    };
+    let (shard_files, total) = select_model_files(&entries).map_err(|e| {
+        anyhow!(
+            "{e} in {owner}/{repo}; files: {}",
+            entries
+                .iter()
+                .filter(|(p, _)| p.ends_with(".gguf"))
+                .map(|(p, _)| p.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })?;
 
     let dir = cache_dir()?.join(format!("{owner}__{repo}"));
-    let total: u64 = shard_files.iter().map(|(_, s)| s).sum();
     eprintln!(
         "fetching {}/{} ({} file(s), {:.1} GB) ...",
         owner,
-        shard_files[0].0,
+        shard_files[0],
         shard_files.len(),
         total as f64 / 1e9
     );
     let mut model = None;
-    for (p, _) in &shard_files {
+    for p in &shard_files {
         let path = download(
             &format!("https://huggingface.co/{owner}/{repo}/resolve/main/{p}"),
             &dir,
@@ -226,4 +234,58 @@ pub fn auto_imatrix(model: &Path, vram: Option<u64>) -> Result<Option<PathBuf>> 
         return Ok(None);
     }
     Ok(Some(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_model_files;
+
+    fn e(items: &[(&str, u64)]) -> Vec<(String, u64)> {
+        items.iter().map(|(p, s)| (p.to_string(), *s)).collect()
+    }
+
+    #[test]
+    fn prefers_bf16_then_f16_then_f32() {
+        let entries = e(&[
+            ("m-Q4_K_M.gguf", 500),
+            ("m-F32.gguf", 4000),
+            ("m-F16.gguf", 2000),
+            ("m-BF16.gguf", 1999),
+        ]);
+        let (files, total) = select_model_files(&entries).unwrap();
+        assert_eq!(files, vec!["m-BF16.gguf"]);
+        assert_eq!(total, 1999);
+
+        let entries = e(&[("m-F32.gguf", 4000), ("m-F16.gguf", 2000)]);
+        assert_eq!(select_model_files(&entries).unwrap().0, vec!["m-F16.gguf"]);
+
+        let entries = e(&[("m-F32.gguf", 4000), ("m-Q8_0.gguf", 1000)]);
+        assert_eq!(select_model_files(&entries).unwrap().0, vec!["m-F32.gguf"]);
+    }
+
+    #[test]
+    fn expands_split_models_sorted() {
+        let entries = e(&[
+            ("BF16/m-BF16-00002-of-00003.gguf", 10),
+            ("m-Q4_K_M.gguf", 500),
+            ("BF16/m-BF16-00003-of-00003.gguf", 5),
+            ("BF16/m-BF16-00001-of-00003.gguf", 10),
+        ]);
+        let (files, total) = select_model_files(&entries).unwrap();
+        assert_eq!(
+            files,
+            vec![
+                "BF16/m-BF16-00001-of-00003.gguf",
+                "BF16/m-BF16-00002-of-00003.gguf",
+                "BF16/m-BF16-00003-of-00003.gguf",
+            ]
+        );
+        assert_eq!(total, 25);
+    }
+
+    #[test]
+    fn errors_without_full_precision_candidate() {
+        let entries = e(&[("m-Q4_K_M.gguf", 500), ("readme.md", 1)]);
+        assert!(select_model_files(&entries).is_err());
+    }
 }
