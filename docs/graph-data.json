@@ -4201,6 +4201,28 @@
       "created_at": "2026-08-17T18:53:34.165425-04:00",
       "updated_at": "2026-08-17T18:53:34.165425-04:00",
       "metadata_json": "{\"branch\":\"master\",\"confidence\":95}"
+    },
+    {
+      "id": 395,
+      "change_id": "972aa467-67c3-4358-87df-7cc479f0d066",
+      "node_type": "action",
+      "title": "README drift sweep: --calibrate row + fixed stale roadmap bullet, IQ ladder in how-it-works, probe/testing/layout sections updated, v0.2.0-era screenshots",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T19:31:43.571639-04:00",
+      "updated_at": "2026-08-17T19:31:43.571639-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 396,
+      "change_id": "28ba61ae-b202-4159-b5ab-bab272914929",
+      "node_type": "action",
+      "title": "Discovery shipped: shoehorn discover CLI + UI card (HF scan, bpw estimate, draft-companion detection, mmproj fix); live-tested + screenshot; 19 tests",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T23:21:37.735934-04:00",
+      "updated_at": "2026-08-17T23:21:37.735934-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
     }
   ],
   "edges": [
@@ -8284,6 +8306,28 @@
       "weight": 1.0,
       "rationale": "overnight goal outcome",
       "created_at": "2026-08-17T18:53:34.174185-04:00"
+    },
+    {
+      "id": 385,
+      "from_node_id": 380,
+      "to_node_id": 395,
+      "from_change_id": "062d34dc-05e2-4768-af89-1029354887c6",
+      "to_change_id": "972aa467-67c3-4358-87df-7cc479f0d066",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "post-release documentation pass",
+      "created_at": "2026-08-17T19:31:43.585589-04:00"
+    },
+    {
+      "id": 386,
+      "from_node_id": 370,
+      "to_node_id": 396,
+      "from_change_id": "b18c664e-8dad-4875-b945-6ad8b29103a6",
+      "to_change_id": "28ba61ae-b202-4159-b5ab-bab272914929",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "discovery feature answering the llmfit comparison",
+      "created_at": "2026-08-17T23:21:37.743957-04:00"
     }
   ],
   "documents": [
