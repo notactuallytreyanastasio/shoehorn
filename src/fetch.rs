@@ -22,23 +22,36 @@ pub fn cache_dir() -> Result<PathBuf> {
 /// a llama.cpp-style split (`-00001-of-0000N.gguf`). Returns the paths and
 /// their total size.
 pub fn select_model_files(entries: &[(String, u64)]) -> Result<(Vec<String>, u64)> {
-    let pick = |pred: &dyn Fn(&str) -> bool| -> Option<&(String, u64)> {
-        entries
-            .iter()
-            .filter(|(p, _)| {
-                let l = p.to_lowercase();
-                // mmproj files are vision projectors that ride along in
-                // multimodal repos, not the model itself
-                p.ends_with(".gguf")
-                    && !l.rsplit('/').next().unwrap_or(&l).starts_with("mmproj")
-                    && pred(&l)
-            })
-            .max_by_key(|(_, s)| *s)
-    };
-    let model_file = pick(&|p| p.contains("bf16"))
-        .or_else(|| pick(&|p| p.contains("f16") && !p.contains("bf16")))
-        .or_else(|| pick(&|p| p.contains("f32")))
-        .ok_or_else(|| anyhow!("no BF16/F16/F32 GGUF"))?;
+    // mmproj files are vision projectors that ride along in multimodal
+    // repos, not the model itself
+    let candidates: Vec<&(String, u64)> = entries
+        .iter()
+        .filter(|(p, _)| {
+            let l = p.to_lowercase();
+            // "mmproj-model-F16.gguf" and "Bonsai-27B-mmproj-BF16.gguf" both
+            p.ends_with(".gguf") && !l.rsplit('/').next().unwrap_or(&l).contains("mmproj")
+        })
+        .collect();
+    // Speculative-decoding drafters ("draft", prism's "dspark") shipped
+    // alongside a model must not outrank it — but a repo that IS a draft
+    // model still resolves, so only prefer, don't exclude.
+    let is_draft =
+        |p: &str| p.rsplit('/').next().unwrap_or(p).contains("draft") || p.contains("dspark");
+    fn pick<'a>(
+        pool: &[&'a (String, u64)],
+        pred: impl Fn(&str) -> bool,
+    ) -> Option<&'a (String, u64)> {
+        pool.iter().filter(|(p, _)| pred(&p.to_lowercase())).max_by_key(|(_, s)| *s).copied()
+    }
+    fn tiers<'a>(pool: &[&'a (String, u64)]) -> Option<&'a (String, u64)> {
+        pick(pool, |p| p.contains("bf16"))
+            .or_else(|| pick(pool, |p| p.contains("f16") && !p.contains("bf16")))
+            .or_else(|| pick(pool, |p| p.contains("f32")))
+    }
+    let clean: Vec<&(String, u64)> =
+        candidates.iter().filter(|(p, _)| !is_draft(&p.to_lowercase())).copied().collect();
+    let model_file =
+        tiers(&clean).or_else(|| tiers(&candidates)).ok_or_else(|| anyhow!("no BF16/F16/F32 GGUF"))?;
     let stem = &model_file.0;
     let shards: Vec<&(String, u64)> = if let Some((prefix, _)) = stem.split_once("-of-") {
         let prefix = prefix.rsplit_once('-').map(|(p, _)| p).unwrap_or(stem);
@@ -313,6 +326,22 @@ mod tests {
     fn errors_without_full_precision_candidate() {
         let entries = e(&[("m-Q4_K_M.gguf", 500), ("readme.md", 1)]);
         assert!(select_model_files(&entries).is_err());
+    }
+
+    #[test]
+    fn drafters_lose_to_the_real_source() {
+        // Bonsai-shaped repo: the dspark drafter's bf16 must not outrank
+        // the true F16, despite bf16 being the preferred tier.
+        let entries = e(&[
+            ("Bonsai-27B-F16.gguf", 53_800_000_000),
+            ("Bonsai-27B-Q1_0.gguf", 3_800_000_000),
+            ("Bonsai-27B-dspark-bf16.gguf", 7_290_000_000),
+            ("Bonsai-27B-mmproj-BF16.gguf", 930_000_000),
+        ]);
+        assert_eq!(select_model_files(&entries).unwrap().0, vec!["Bonsai-27B-F16.gguf"]);
+        // a repo that IS a draft model still resolves
+        let entries = e(&[("Qwen-0.5B-draft-BF16.gguf", 900), ("m-Q4_K_M.gguf", 500)]);
+        assert_eq!(select_model_files(&entries).unwrap().0, vec!["Qwen-0.5B-draft-BF16.gguf"]);
     }
 
     #[test]

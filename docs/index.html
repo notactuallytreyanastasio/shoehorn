@@ -84,6 +84,7 @@
   .model-head .name { font-weight: 600; overflow-wrap: anywhere; }
   .model-head .verdict { color: var(--thread); }
   .model-head .verdict.tight { color: var(--tape-deep); }
+  .model-head .native { color: var(--tape-deep); flex-basis: 100%; }
   .cmd {
     display: flex; gap: 8px; align-items: center; margin-top: 8px;
     font: 12.5px var(--mono); color: var(--ink-soft);
@@ -261,11 +262,14 @@ const verdictFor = b =>
 function selectSource(files) {
   const usable = files.filter(f =>
     f.path.toLowerCase().endsWith(".gguf") &&
-    !f.path.split("/").pop().toLowerCase().startsWith("mmproj"));
-  const pick = tag => usable
+    !f.path.split("/").pop().toLowerCase().includes("mmproj"));
+  // speculative-decoding drafters must not outrank the real model
+  const isDraft = f => { const b = f.path.split("/").pop().toLowerCase(); return b.includes("draft") || b.includes("dspark"); };
+  const pickIn = (pool, tag) => pool
     .filter(f => { const l = f.path.toLowerCase(); return l.includes(tag) && (tag !== "f16" || !l.includes("bf16")); })
     .sort((a, b) => b.size - a.size)[0];
-  const best = pick("bf16") || pick("f16") || pick("f32");
+  const tiers = pool => pickIn(pool, "bf16") || pickIn(pool, "f16") || pickIn(pool, "f32");
+  const best = tiers(usable.filter(f => !isDraft(f))) || tiers(usable);
   if (!best) return null;
   let total = best.size, isF32 = !/bf16|(?<!b)f16/.test(best.path.toLowerCase());
   const of = best.path.indexOf("-of-");
@@ -305,7 +309,19 @@ $("scan").addEventListener("click", async () => {
           const params = src.bytes / src.perParam;
           const hint = nameHint(m.id);
           if (!(hint && params / 1e9 < hint * 0.3)) {
-            out.push({ repo: m.id, params, bpw: Math.min(budget * 8 / params, 16) });
+            // a file at binary bits/weight is a QAT'd build — if it fits
+            // the budget outright it beats any fit
+            const nat = files.filter(f => {
+              const b = f.path.split("/").pop().toLowerCase();
+              const fb = f.size * 8 / params;
+              return f.path.toLowerCase().endsWith(".gguf") && !b.includes("mmproj") &&
+                !b.includes("draft") && !b.includes("dspark") &&
+                fb >= 0.8 && fb < 1.5 && f.size <= budget;
+            }).sort((a, b) => a.size - b.size)[0];
+            out.push({
+              repo: m.id, params, bpw: Math.min(budget * 8 / params, 16),
+              native: nat ? `also ships ${nat.path.split("/").pop()} — a native ${(nat.size * 8 / params).toFixed(1)} bpw QAT build (${(nat.size / GIB).toFixed(1)} GiB), no fitting needed (check the repo for runtime support)` : null,
+            });
           }
         }
       } catch {}
@@ -331,8 +347,10 @@ $("scan").addEventListener("click", async () => {
       const head = document.createElement("div");
       head.className = "model-head";
       head.innerHTML = `<span class="name"></span><span>${(s.params / 1e9).toFixed(1)}B</span>` +
-        `<span class="verdict${tight ? " tight" : ""}">${verdict}</span>`;
+        `<span class="verdict${tight ? " tight" : ""}">${verdict}</span>` +
+        (s.native ? `<span class="native"></span>` : "");
       head.querySelector(".name").textContent = s.repo;
+      if (s.native) head.querySelector(".native").textContent = s.native;
       const cmdId = "cmd-" + s.repo.replace(/[^a-zA-Z0-9]/g, "-");
       const cmd = document.createElement("div");
       cmd.className = "cmd";

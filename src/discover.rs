@@ -22,6 +22,9 @@ pub struct Suggestion {
     pub verdict: &'static str,
     /// full-precision file is far smaller than the repo name claims
     pub suspicious: bool,
+    /// the repo also ships a native QAT'd binary build that fits outright
+    /// (e.g. Bonsai's Q1_0 at 1.1 bpw) — no fitting needed, just run it
+    pub native: Option<String>,
 }
 
 /// Overhead the weight budget loses to KV + compute + reserve, without the
@@ -111,6 +114,62 @@ fn popular_gguf_repos(limit: usize) -> Result<Vec<(String, u64)>> {
         .collect())
 }
 
+/// One repo's suggestion, given its file listing and the weight budget.
+fn analyze_repo(
+    id: &str,
+    downloads: u64,
+    entries: &[(String, u64)],
+    weight_budget: u64,
+) -> Option<Suggestion> {
+    let (files, total) = crate::fetch::select_model_files(entries).ok()?;
+    if total == 0 {
+        return None;
+    }
+    let params = total as f64 / bytes_per_param(&files);
+    // more budget than the source has bits is just "full precision"
+    let bpw = (weight_budget as f64 * 8.0 / params).min(16.0);
+    // e.g. a "27B" repo whose only F16 is 900 MB: a draft model
+    let suspicious = name_params_hint(id).is_some_and(|hint| params / 1e9 < hint * 0.3);
+    // A file at binary bits-per-weight is a QAT'd build (PTQ can't go
+    // there): if it fits the budget outright, say so — it beats any fit.
+    let native = entries
+        .iter()
+        .filter(|e| {
+            let (p, s) = (&e.0, e.1);
+            let b = p.rsplit('/').next().unwrap_or(p).to_lowercase();
+            let file_bpw = s as f64 * 8.0 / params;
+            p.ends_with(".gguf")
+                && !b.contains("mmproj")
+                && !b.contains("draft")
+                && !b.contains("dspark")
+                && (0.8..1.5).contains(&file_bpw)
+                && s <= weight_budget
+        })
+        .min_by_key(|e| e.1)
+        .map(|e| {
+            format!(
+                "also ships {} — a native {:.1} bpw QAT build ({:.1} GiB), no fitting needed (check the repo for runtime support)",
+                e.0.rsplit('/').next().unwrap_or(&e.0),
+                e.1 as f64 * 8.0 / params,
+                e.1 as f64 / (1u64 << 30) as f64
+            )
+        });
+    Some(Suggestion {
+        repo: id.to_string(),
+        downloads,
+        src_bytes: total,
+        params,
+        bpw,
+        verdict: if suspicious {
+            "source is far smaller than the name — likely a draft companion"
+        } else {
+            verdict_for(bpw)
+        },
+        suspicious,
+        native,
+    })
+}
+
 /// Rank fit-worthy repos for a machine with `usable_vram` at context `ctx`.
 pub fn discover(usable_vram: u64, ctx: u64, scan: usize) -> Result<Vec<Suggestion>> {
     let weight_budget = usable_vram.saturating_sub(est_overhead(ctx));
@@ -124,29 +183,7 @@ pub fn discover(usable_vram: u64, ctx: u64, scan: usize) -> Result<Vec<Suggestio
         .filter_map(|(id, downloads)| {
             let (owner, repo) = id.split_once('/')?;
             let entries = crate::fetch::repo_entries(owner, repo).ok()?;
-            let (files, total) = crate::fetch::select_model_files(&entries).ok()?;
-            if total == 0 {
-                return None;
-            }
-            let params = total as f64 / bytes_per_param(&files);
-            // more budget than the source has bits is just "full precision"
-            let bpw = (weight_budget as f64 * 8.0 / params).min(16.0);
-            // e.g. a "27B" repo whose only F16 is 900 MB: a draft model
-            let suspicious = name_params_hint(id)
-                .is_some_and(|hint| params / 1e9 < hint * 0.3);
-            Some(Suggestion {
-                repo: id.clone(),
-                downloads: *downloads,
-                src_bytes: total,
-                params,
-                bpw,
-                verdict: if suspicious {
-                    "source is far smaller than the name — likely a draft companion"
-                } else {
-                    verdict_for(bpw)
-                },
-                suspicious,
-            })
+            analyze_repo(id, *downloads, &entries, weight_budget)
         })
         .collect();
     // Biggest model that still fits well makes the best suggestion: sort by
@@ -177,6 +214,26 @@ mod tests {
         assert_eq!(verdict_for(4.7), "good (Q4/Q5-class)");
         assert_eq!(verdict_for(3.4), "tight — worthwhile for big models");
         assert_eq!(verdict_for(1.5), "does not fit");
+    }
+
+    #[test]
+    fn bonsai_shaped_repo_analyzed_correctly() {
+        let entries: Vec<(String, u64)> = vec![
+            ("Bonsai-27B-F16.gguf".into(), 53_800_000_000),
+            ("Bonsai-27B-Q1_0.gguf".into(), 3_800_000_000),
+            ("Bonsai-27B-dspark-bf16.gguf".into(), 7_290_000_000),
+            ("Bonsai-27B-mmproj-BF16.gguf".into(), 930_000_000),
+        ];
+        let s = analyze_repo("prism-ml/Bonsai-27B-gguf", 1, &entries, 15 << 30).unwrap();
+        // real F16 wins over the dspark drafter, so params look like 27B
+        assert!(!s.suspicious, "27B repo must not read as a draft companion");
+        assert!((26.0..28.0).contains(&(s.params / 1e9)), "params {}", s.params / 1e9);
+        // and the 1.1 bpw QAT build is surfaced as runnable outright
+        let native = s.native.expect("Q1_0 build should be flagged");
+        assert!(native.contains("Q1_0"), "{native}");
+        // ...but not when it doesn't fit the budget
+        let tight = analyze_repo("prism-ml/Bonsai-27B-gguf", 1, &entries, 2 << 30).unwrap();
+        assert!(tight.native.is_none());
     }
 
     #[test]

@@ -942,6 +942,7 @@ fn main() -> Result<()> {
                             "bpw": (s.bpw * 100.0).round() / 100.0,
                             "verdict": s.verdict,
                             "suspicious": s.suspicious,
+                            "native": s.native,
                         })
                     })
                     .collect();
@@ -963,6 +964,9 @@ fn main() -> Result<()> {
                     s.bpw,
                     s.verdict
                 );
+                if let Some(n) = &s.native {
+                    println!("    ↳ {n}");
+                }
             }
             if let Some(top) = list.first() {
                 println!(
