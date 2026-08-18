@@ -4223,6 +4223,17 @@
       "created_at": "2026-08-17T23:21:37.735934-04:00",
       "updated_at": "2026-08-17T23:21:37.735934-04:00",
       "metadata_json": "{\"branch\":\"master\",\"confidence\":92}"
+    },
+    {
+      "id": 397,
+      "change_id": "c73f0b59-0993-4e5f-b9f9-820ed3ecada2",
+      "node_type": "action",
+      "title": "GitHub Pages site live at notactuallytreyanastasio.github.io/shoehorn: pitch, browser-side what-fits calculator (HF CORS APIs), live release-asset download links; verified in production",
+      "description": null,
+      "status": "pending",
+      "created_at": "2026-08-17T23:56:52.523506-04:00",
+      "updated_at": "2026-08-17T23:56:52.523506-04:00",
+      "metadata_json": "{\"branch\":\"master\",\"confidence\":93}"
     }
   ],
   "edges": [
@@ -8328,6 +8339,17 @@
       "weight": 1.0,
       "rationale": "discovery feature answering the llmfit comparison",
       "created_at": "2026-08-17T23:21:37.743957-04:00"
+    },
+    {
+      "id": 387,
+      "from_node_id": 370,
+      "to_node_id": 397,
+      "from_change_id": "b18c664e-8dad-4875-b945-6ad8b29103a6",
+      "to_change_id": "c73f0b59-0993-4e5f-b9f9-820ed3ecada2",
+      "edge_type": "leads_to",
+      "weight": 1.0,
+      "rationale": "public site funnels visitors to downloads",
+      "created_at": "2026-08-17T23:56:52.531540-04:00"
     }
   ],
   "documents": [
