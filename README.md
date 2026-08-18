@@ -3,6 +3,9 @@
 Quantize a BF16 GGUF model with an imatrix so it fits exactly into your
 available VRAM, then run it with llama.cpp.
 
+**[shoehorn's site](https://notactuallytreyanastasio.github.io/shoehorn/)**
+has downloads and a browser-side "what fits your machine?" calculator.
+
 Preset quantizations (`Q4_K_M`, `Q5_K_S`, ...) ignore your hardware. Pick one
 that fits your machine and you either leave hundreds of megabytes of quality
 unused or find out at load time that it didn't fit after all. shoehorn starts
