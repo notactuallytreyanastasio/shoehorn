@@ -147,6 +147,11 @@ a model name, and runs the fit with the log streamed into the page.
 
 ![the fit form: your machine's measurement, a model field, and one button](docs/ui-idle.png)
 
+Don't know which model to pick? **What fits this machine?** ranks
+Hugging Face's most-downloaded fittable models by what your budget affords:
+
+![discovery: ranked fittable models with Use buttons](docs/ui-discover.png)
+
 While the fit runs, the budget renders as a tape measure — weights grow from
 the left while the fixed costs (KV cache, compute buffers, safety margin)
 hold the right edge. When it lands, **Chat with it** serves the result with
@@ -160,9 +165,11 @@ Step by step:
    the output `<model>-fit.gguf` lands in the current directory, like the
    CLI. The browser opens by itself (`--no-open` to suppress, `--port` to
    move it off 7788).
-2. Type a model: a Hugging Face repo id, a URL, or a path to a local BF16
-   GGUF. The field suggests a few known-good repos and live-searches
-   Hugging Face as you type. First fit of a repo
+2. Type a model — or click **What fits this machine?** in the machine card
+   to have `discover` rank fittable models for your budget, each with a
+   **Use** button (also reachable directly at `/#discover`). The field
+   suggests a few known-good repos and live-searches Hugging Face as you
+   type. First fit of a repo
    downloads the BF16, which for big models is tens of GB — the download
    resumes if interrupted and is cached in `~/.cache/shoehorn`.
 3. Pick how much conversation room you want. More context means a bigger KV
@@ -347,6 +354,7 @@ shoehorn run       -m <model.gguf> [--ctx N] [--kv q8_0] [-- <llama-server args.
 shoehorn vram
 shoehorn ui        [--port 7788] [--no-open]
 shoehorn eval      -m <model.gguf> [-f <text>] [--baseline <other.gguf>] [--ctx N]
+shoehorn discover  [--ctx N] [--budget <size>] [--scan N]
 ```
 
 `fit` accepts a local path, a Hugging Face repo id (it picks the largest
@@ -393,6 +401,16 @@ fitted.gguf: PPL 8.0719
 model-bf16.gguf: PPL 8.0132
 delta: +0.73% vs baseline
 ```
+
+`discover` answers "which model should I even fit?": it scans the
+most-downloaded GGUF repos on Hugging Face for full-precision sources (the
+same BF16 > F16 > F32 pick `fit` uses, so every suggestion is actually
+fittable), estimates the bits/weight your budget affords each one, and ranks
+them — biggest model in the best quality tier first. Repos whose
+"full-precision" file is a speculative-decoding draft companion are detected
+by cross-checking the file size against the parameter count in the repo name,
+and flagged instead of recommended. The numbers are estimates; the printed
+`shoehorn fit <repo> --dry-run` line gives the exact solve.
 
 `ui` serves a local web page (and opens it) that drives the whole `fit`
 pipeline as a subprocess: pick a model, watch the budget gauge fill, then

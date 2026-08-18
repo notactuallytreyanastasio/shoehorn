@@ -110,6 +110,10 @@ fn route(req: &mut tiny_http::Request, state: &Shared) -> tiny_http::Response<st
             Ok(v) => json_resp(200, &v),
             Err(e) => json_resp(400, &json!({ "error": e.to_string() })),
         },
+        (true, "/api/discover") => match api_discover(state) {
+            Ok(v) => json_resp(200, &v),
+            Err(e) => json_resp(400, &json!({ "error": e.to_string() })),
+        },
         (true, "/api/cancel") => {
             state.lock().unwrap().cancelled = true;
             json_resp(200, &json!({ "ok": true }))
@@ -308,6 +312,25 @@ fn api_eval(state: &Shared) -> Result<Value> {
     s.preview = false;
     attach_job(s, child, state);
     Ok(json!({ "ok": true }))
+}
+
+/// Rank fit-worthy models for this machine. Blocks for the scan (a few
+/// seconds of Hugging Face calls), so it's refused while a job is running —
+/// the log poller shares this thread.
+fn api_discover(state: &Shared) -> Result<Value> {
+    if state.lock().unwrap().phase == Phase::Running {
+        return Err(anyhow!("wait for the current job to finish"));
+    }
+    let exe = std::env::current_exe()?;
+    let out = Command::new(exe)
+        .args(["discover", "--json"])
+        .stdin(Stdio::null())
+        .output()
+        .context("running discover")?;
+    if !out.status.success() {
+        return Err(anyhow!("discovery failed: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    serde_json::from_slice(&out.stdout).context("parsing discovery output")
 }
 
 /// Wire a spawned subprocess into the shared job state: stream pumps for

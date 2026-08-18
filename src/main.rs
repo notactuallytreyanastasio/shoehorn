@@ -2,6 +2,7 @@
 // port stays auditable against the reference; iterator style would hide that.
 #![allow(clippy::needless_range_loop)]
 
+mod discover;
 #[cfg(test)]
 mod e2e_tests;
 mod fetch;
@@ -136,6 +137,24 @@ enum Cmd {
         /// extra args after -- go to llama-server with --serve
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra: Vec<String>,
+    },
+    /// Rank popular Hugging Face models by how well they'd fit this machine
+    Discover {
+        /// context length the estimate budgets for
+        #[arg(long, default_value_t = 8192)]
+        ctx: u64,
+        /// override detected VRAM, e.g. "18GiB"
+        #[arg(long)]
+        budget: Option<String>,
+        /// budget for a different unified-memory machine by its RAM size
+        #[arg(long, conflicts_with = "budget")]
+        target: Option<String>,
+        /// how many top-downloaded GGUF repos to scan for BF16 sources
+        #[arg(long, default_value_t = 40)]
+        scan: usize,
+        /// machine-readable output (used by the web UI)
+        #[arg(long)]
+        json: bool,
     },
     /// Measure perplexity on held-out text (via llama-perplexity), optionally
     /// against a baseline model, to verify what a fit cost in quality
@@ -897,6 +916,62 @@ fn main() -> Result<()> {
             write_quantized(&output, &plan, &file, &im, None)?;
             if fit.calibrate {
                 calibrate_pass(&output, &plan, &fit, &file, &im)?;
+            }
+            Ok(())
+        }
+        Cmd::Discover { ctx, budget, target, scan, json } => {
+            let (usable, source) = match (&budget, &target) {
+                (Some(s), _) => (parse_size(s)?, format!("--budget {s}")),
+                (None, Some(t)) => (parse_size(t)? * 74 / 100, format!("--target {t}")),
+                (None, None) => {
+                    let (b, name, src) = vram::probe()
+                        .ok_or_else(|| anyhow!("no probeable GPU found; pass --budget"))?;
+                    (b, format!("{src} ({name})"))
+                }
+            };
+            let list = discover::discover(usable, ctx, scan)?;
+            if json {
+                let arr: Vec<serde_json::Value> = list
+                    .iter()
+                    .map(|s| {
+                        serde_json::json!({
+                            "repo": s.repo,
+                            "downloads": s.downloads,
+                            "src": fmt_size(s.src_bytes),
+                            "params_b": (s.params / 1e9 * 10.0).round() / 10.0,
+                            "bpw": (s.bpw * 100.0).round() / 100.0,
+                            "verdict": s.verdict,
+                            "suspicious": s.suspicious,
+                        })
+                    })
+                    .collect();
+                println!("{}", serde_json::json!({ "usable": usable, "models": arr }));
+                return Ok(());
+            }
+            println!(
+                "\nbudget: {} usable ({source}), ctx {ctx} — estimated {} for weights\n",
+                fmt_size(usable),
+                fmt_size(usable.saturating_sub(discover::est_overhead(ctx))),
+            );
+            println!("{:<44} {:>9} {:>8} {:>8}  verdict", "model", "source", "params", "est bpw");
+            for s in &list {
+                println!(
+                    "{:<44} {:>9} {:>7.1}B {:>8.2}  {}",
+                    s.repo,
+                    fmt_size(s.src_bytes),
+                    s.params / 1e9,
+                    s.bpw,
+                    s.verdict
+                );
+            }
+            if let Some(top) = list.first() {
+                println!(
+                    "\nestimates only — solve one for real: shoehorn fit {} --dry-run\n\
+                     or fit and chat:                      shoehorn fit {} --serve",
+                    top.repo, top.repo
+                );
+            } else {
+                println!("nothing with a full-precision source fits this budget; try --scan 100");
             }
             Ok(())
         }

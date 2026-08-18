@@ -21,11 +21,18 @@ pub fn cache_dir() -> Result<PathBuf> {
 /// F16, then F32 — expanded to every sibling shard (sorted) when the pick is
 /// a llama.cpp-style split (`-00001-of-0000N.gguf`). Returns the paths and
 /// their total size.
-fn select_model_files(entries: &[(String, u64)]) -> Result<(Vec<String>, u64)> {
+pub fn select_model_files(entries: &[(String, u64)]) -> Result<(Vec<String>, u64)> {
     let pick = |pred: &dyn Fn(&str) -> bool| -> Option<&(String, u64)> {
         entries
             .iter()
-            .filter(|(p, _)| p.ends_with(".gguf") && pred(&p.to_lowercase()))
+            .filter(|(p, _)| {
+                let l = p.to_lowercase();
+                // mmproj files are vision projectors that ride along in
+                // multimodal repos, not the model itself
+                p.ends_with(".gguf")
+                    && !l.rsplit('/').next().unwrap_or(&l).starts_with("mmproj")
+                    && pred(&l)
+            })
             .max_by_key(|(_, s)| *s)
     };
     let model_file = pick(&|p| p.contains("bf16"))
@@ -71,10 +78,11 @@ pub fn resolve(spec: &str) -> Result<Resolved> {
     }
 }
 
-fn hf_repo(owner: &str, repo: &str) -> Result<Resolved> {
+/// List a repo's files (path, size) via the Hugging Face tree API.
+pub fn repo_entries(owner: &str, repo: &str) -> Result<Vec<(String, u64)>> {
     let api = format!("https://huggingface.co/api/models/{owner}/{repo}/tree/main");
     let out = Command::new("curl")
-        .args(["-sL", "--fail", &api])
+        .args(["-sL", "--fail", "--max-time", "15", &api])
         .output()
         .context("running curl")?;
     if !out.status.success() {
@@ -82,7 +90,7 @@ fn hf_repo(owner: &str, repo: &str) -> Result<Resolved> {
     }
     let files: serde_json::Value = serde_json::from_slice(&out.stdout)
         .context("parsing Hugging Face API response")?;
-    let entries: Vec<(String, u64)> = files
+    Ok(files
         .as_array()
         .ok_or_else(|| anyhow!("unexpected API response shape"))?
         .iter()
@@ -92,7 +100,11 @@ fn hf_repo(owner: &str, repo: &str) -> Result<Resolved> {
                 f.get("size").and_then(|s| s.as_u64()).unwrap_or(0),
             ))
         })
-        .collect();
+        .collect())
+}
+
+fn hf_repo(owner: &str, repo: &str) -> Result<Resolved> {
+    let entries = repo_entries(owner, repo)?;
 
     let (shard_files, total) = select_model_files(&entries).map_err(|e| {
         anyhow!(
@@ -300,6 +312,15 @@ mod tests {
     #[test]
     fn errors_without_full_precision_candidate() {
         let entries = e(&[("m-Q4_K_M.gguf", 500), ("readme.md", 1)]);
+        assert!(select_model_files(&entries).is_err());
+    }
+
+    #[test]
+    fn ignores_mmproj_projector_files() {
+        let entries = e(&[("mmproj-model-F16.gguf", 900), ("m-BF16.gguf", 500)]);
+        assert_eq!(select_model_files(&entries).unwrap().0, vec!["m-BF16.gguf"]);
+        // a repo with ONLY an mmproj has no usable source
+        let entries = e(&[("sub/mmproj-F16.gguf", 900), ("m-Q4_K_M.gguf", 500)]);
         assert!(select_model_files(&entries).is_err());
     }
 }

@@ -218,6 +218,11 @@
     <div class="measure" id="machine-line">taking the measurement&hellip;</div>
     <div class="warn" id="llama-warn" hidden>llama.cpp isn&rsquo;t installed, so the fitted model can&rsquo;t be run from here.
       Install it first (macOS: <code>brew install llama.cpp</code>).</div>
+    <div class="actions" style="margin-top:14px">
+      <button class="quiet" id="disco">What fits this machine?</button>
+      <span class="hint" id="disco-note"></span>
+    </div>
+    <div id="disco-list" style="margin-top:6px"></div>
   </section>
 
   <section class="card" id="history" hidden>
@@ -577,6 +582,42 @@ async function loadHistory() {
   } catch {}
 }
 
+$("disco").addEventListener("click", async () => {
+  $("disco").disabled = true;
+  $("disco-note").textContent = "asking Hugging Face…";
+  try {
+    const r = await fetch("/api/discover", { method: "POST" });
+    if (!r.ok) { $("disco-note").textContent = (await r.json()).error; return; }
+    const d = await r.json();
+    const rows = d.models.filter(m => !m.suspicious).slice(0, 10);
+    $("disco-list").innerHTML = "";
+    for (const m of rows) {
+      const row = document.createElement("div");
+      row.className = "fit-row";
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = m.repo;
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent = `${m.params_b}B — ${m.verdict}`;
+      const btn = document.createElement("button");
+      btn.className = "quiet";
+      btn.textContent = "Use";
+      btn.addEventListener("click", () => {
+        $("model").value = m.repo;
+        $("model").focus();
+      });
+      row.append(name, meta, btn);
+      $("disco-list").append(row);
+    }
+    $("disco-note").textContent = rows.length
+      ? "estimates — Preview the mix solves it for real"
+      : "nothing with a full-precision source found";
+  } finally {
+    $("disco").disabled = false;
+  }
+});
+
 // Live model search: after a pause in typing, ask Hugging Face (via the
 // server) and refresh the suggestion list.
 let searchTimer = null;
@@ -597,6 +638,7 @@ $("model").addEventListener("input", () => {
 
 info();
 loadHistory();
+if (location.hash === "#discover") $("disco").click();
 // A reload mid-fit (or after one) picks the run back up from the server.
 fetch("/api/log?from=0").then(r => r.json()).then(r => {
   if (r.state !== "idle" || r.total > 0) startWatching();
