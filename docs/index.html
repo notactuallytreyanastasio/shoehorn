@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shoehorn — fit a language model to your machine</title>
+<meta name="description" content="Quantize a BF16 GGUF with an imatrix to exactly fit your VRAM, then run it with llama.cpp. Every spare megabyte spent where it buys the most quality.">
+<style>
+  :root {
+    --paper: #ECEEF1;
+    --card: #FBFBFA;
+    --ink: #1C2833;
+    --ink-soft: #5A6572;
+    --seam: #D2D7DD;
+    --tape: #F0C244;
+    --tape-deep: #D9A82A;
+    --tape-ink: #2A2205;
+    --thread: #2F6B52;
+    --stitch: #B23A2E;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, monospace;
+    --display: "Avenir Next", Avenir, Futura, "Century Gothic", "Trebuchet MS", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--paper); color: var(--ink); font: 16px/1.55 var(--display); padding: 0 20px 80px; }
+  .tape-edge {
+    height: 14px; margin: 0 -20px;
+    background:
+      repeating-linear-gradient(90deg, var(--tape-ink) 0, var(--tape-ink) 1px, transparent 1px, transparent 10px),
+      repeating-linear-gradient(90deg, transparent 0, transparent 49px, var(--tape-ink) 49px, var(--tape-ink) 51px, transparent 51px, transparent 100px),
+      var(--tape);
+    background-size: 100px 45%, 100px 100%, auto;
+    background-repeat: repeat-x;
+    background-position: bottom left, bottom left, 0 0;
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  header { padding: 56px 0 10px; }
+  h1 { font-size: 52px; font-weight: 600; letter-spacing: -0.02em; }
+  .tagline { color: var(--ink-soft); font-size: 19px; margin-top: 4px; }
+  .pitch { margin-top: 22px; max-width: 62ch; }
+  .term {
+    font: 14px/1.7 var(--mono);
+    background: var(--ink); color: #C9D2DB;
+    border-radius: 10px; padding: 18px 20px; margin-top: 24px;
+    overflow-x: auto; white-space: pre;
+  }
+  .term b { color: var(--tape); font-weight: 600; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; align-items: center; }
+  a.btn, button.btn {
+    display: inline-block; text-decoration: none; cursor: pointer;
+    font: 600 16px var(--display); border: none; border-radius: 8px; padding: 13px 22px;
+  }
+  .btn.primary { background: var(--ink); color: var(--card); }
+  .btn.primary:hover { background: #2B3A48; }
+  .btn.quiet { background: none; border: 1px solid var(--seam); color: var(--ink-soft); }
+  .card { background: var(--card); border: 1px solid var(--seam); border-radius: 10px; padding: 22px 24px; margin-top: 26px; }
+  .eyebrow { font: 600 11px/1 var(--display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-soft); margin-bottom: 12px; }
+  h2 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+  p.soft { color: var(--ink-soft); font-size: 15px; }
+  label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
+  select, input[type=text] {
+    width: 100%; font: 15px var(--mono); color: var(--ink);
+    background: #fff; border: 1px solid var(--seam); border-radius: 7px; padding: 10px 12px;
+  }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .row > div { flex: 1 1 200px; }
+  a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  #results { margin-top: 6px; }
+  .model-row { border-top: 1px solid var(--seam); padding: 12px 0; }
+  .model-row:first-child { border-top: none; }
+  .model-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; font: 14px var(--mono); }
+  .model-head .name { font-weight: 600; overflow-wrap: anywhere; }
+  .model-head .verdict { color: var(--thread); }
+  .model-head .verdict.tight { color: var(--tape-deep); }
+  .cmd {
+    display: flex; gap: 8px; align-items: center; margin-top: 8px;
+    font: 12.5px var(--mono); color: var(--ink-soft);
+  }
+  .cmd code {
+    background: var(--paper); border: 1px solid var(--seam); border-radius: 5px;
+    padding: 4px 8px; overflow-x: auto; white-space: nowrap; flex: 0 1 auto;
+  }
+  .cmd button { font: 12px var(--display); border: 1px solid var(--seam); background: none; color: var(--ink-soft); border-radius: 5px; padding: 4px 10px; cursor: pointer; flex: none; }
+  #scan-note { font: 13px var(--mono); color: var(--ink-soft); margin-top: 10px; min-height: 20px; }
+  img.shot { width: 100%; height: auto; border: 1px solid var(--seam); border-radius: 10px; margin-top: 14px; }
+  .dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 14px; }
+  .dl {
+    border: 1px solid var(--seam); border-radius: 8px; padding: 16px;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .dl b { font-size: 15px; }
+  .dl span { font: 12.5px var(--mono); color: var(--ink-soft); }
+  .dl a { color: var(--ink); font-weight: 600; font-size: 14px; }
+  .brew {
+    display: flex; gap: 8px; align-items: center; margin-top: 14px; flex-wrap: wrap;
+    font: 13.5px var(--mono);
+  }
+  .brew code { background: var(--paper); border: 1px solid var(--seam); border-radius: 6px; padding: 8px 12px; overflow-x: auto; }
+  footer { margin-top: 44px; font-size: 13.5px; color: var(--ink-soft); }
+  footer a { color: inherit; }
+  @media (max-width: 560px) { h1 { font-size: 40px; } }
+</style>
+</head>
+<body>
+<div class="tape-edge" aria-hidden="true"></div>
+<main>
+  <header>
+    <h1>shoehorn</h1>
+    <p class="tagline">Fits a language model to your machine, megabyte for megabyte.</p>
+    <p class="pitch">Preset quantizations ignore your hardware: pick one that fits and you
+      either waste hundreds of megabytes of quality headroom or find out at load time it
+      didn't fit after all. shoehorn starts from the memory you actually have, subtracts
+      what inference itself needs, and solves a per-tensor mixed-precision assignment
+      that lands within a rounding error of the remainder — routinely using
+      <strong>99.99%</strong> of the budget, sometimes to the byte.</p>
+    <div class="term">$ shoehorn fit unsloth/Qwen3-4B-GGUF --serve
+<b>weights: 519.2 MiB of 519.2 MiB budget (99.998% used, 13 KB slack)</b></div>
+    <div class="cta">
+      <a class="btn primary" href="#install">Get shoehorn</a>
+      <a class="btn quiet" href="#fits">What fits your machine?</a>
+      <a class="btn quiet" href="https://github.com/notactuallytreyanastasio/shoehorn">GitHub</a>
+    </div>
+  </header>
+
+  <section class="card" id="fits">
+    <div class="eyebrow">Before you download</div>
+    <h2>What fits your machine?</h2>
+    <p class="soft">Pick your hardware and this page scans Hugging Face's most-downloaded
+      models for ones shoehorn can fit to your budget — ranked by the quality your memory
+      affords. Runs entirely in your browser.</p>
+    <div class="row">
+      <div>
+        <label for="machine">Your machine</label>
+        <select id="machine">
+          <optgroup label="Apple Silicon (unified memory)">
+            <option value="a:8">Mac — 8 GB</option>
+            <option value="a:16">Mac — 16 GB</option>
+            <option value="a:24" selected>Mac — 24 GB</option>
+            <option value="a:32">Mac — 32 GB</option>
+            <option value="a:48">Mac — 48 GB</option>
+            <option value="a:64">Mac — 64 GB</option>
+            <option value="a:96">Mac — 96 GB</option>
+            <option value="a:128">Mac — 128 GB</option>
+          </optgroup>
+          <optgroup label="NVIDIA">
+            <option value="n:8">GPU — 8 GB VRAM</option>
+            <option value="n:12">GPU — 12 GB VRAM</option>
+            <option value="n:16">GPU — 16 GB VRAM</option>
+            <option value="n:24">GPU — 24 GB VRAM</option>
+            <option value="n:32">GPU — 32 GB VRAM</option>
+          </optgroup>
+          <option value="c">Custom…</option>
+        </select>
+      </div>
+      <div>
+        <label for="ctx">Conversation room</label>
+        <select id="ctx">
+          <option value="4096">4k tokens — short chats</option>
+          <option value="8192" selected>8k tokens — everyday use</option>
+          <option value="16384">16k tokens — long documents</option>
+          <option value="32768">32k tokens — the whole novella</option>
+        </select>
+      </div>
+    </div>
+    <div id="custom-wrap" hidden>
+      <label for="custom">Usable GPU memory, GiB</label>
+      <input type="text" id="custom" placeholder="e.g. 17.76">
+    </div>
+    <div class="cta" style="margin-top:18px">
+      <button class="btn primary" id="scan">Find models</button>
+      <span id="scan-note"></span>
+    </div>
+    <div id="results"></div>
+  </section>
+
+  <section class="card" id="install">
+    <div class="eyebrow">Get shoehorn</div>
+    <h2>Install</h2>
+    <p class="soft">shoehorn needs <a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a>
+      on your PATH as the inference backend (the Homebrew install pulls it in for you).
+      Then <code>shoehorn ui</code> opens the local app — pick a model, press one
+      button, chat.</p>
+    <div class="brew">
+      <code id="brew-cmd">brew install notactuallytreyanastasio/shoehorn/shoehorn</code>
+      <button class="btn quiet" data-copy="brew-cmd" style="padding:8px 14px;font-size:13px">Copy</button>
+    </div>
+    <div class="dl-grid" id="dl-grid">
+      <div class="dl"><b>macOS</b><span>Apple Silicon</span><a id="dl-mac" href="https://github.com/notactuallytreyanastasio/shoehorn/releases/latest">Download →</a></div>
+      <div class="dl"><b>Linux</b><span>x86-64 · NVIDIA or AMD</span><a id="dl-linux" href="https://github.com/notactuallytreyanastasio/shoehorn/releases/latest">Download →</a></div>
+      <div class="dl"><b>Windows</b><span>x86-64 · NVIDIA</span><a id="dl-win" href="https://github.com/notactuallytreyanastasio/shoehorn/releases/latest">Download →</a></div>
+    </div>
+    <p class="soft" style="margin-top:14px">Or from source: <code>cargo install --path .</code>
+      after cloning <a href="https://github.com/notactuallytreyanastasio/shoehorn">the repo</a>.
+      All <a href="https://github.com/notactuallytreyanastasio/shoehorn/releases" id="rel-link">releases</a>.</p>
+  </section>
+
+  <section class="card">
+    <div class="eyebrow">The app</div>
+    <h2>One button, your whole budget</h2>
+    <p class="soft">The local web app measures your machine, streams the fit, renders the
+      budget as a tape measure, puts a perplexity number on what the fit cost, and ends at
+      a Chat button.</p>
+    <img class="shot" src="ui-fitted.png" alt="a finished fit: the tape-measure budget gauge at 99.998% used, the per-type mix, and Chat and Measure buttons" loading="lazy">
+    <img class="shot" src="ui-discover.png" alt="the discovery card: models ranked by what your budget affords, each with a Use button" loading="lazy">
+  </section>
+
+  <footer>
+    MIT-licensed. The quantizer is implemented from scratch in Rust — no llama.cpp code
+    linked — and the output is standard GGUF v3 that anything downstream of llama.cpp
+    loads. <a href="https://github.com/notactuallytreyanastasio/shoehorn">Source</a> ·
+    <a href="https://github.com/notactuallytreyanastasio/shoehorn/blob/master/DESIGN.md">design history</a> ·
+    <a href="https://github.com/notactuallytreyanastasio/shoehorn/releases">releases</a>
+  </footer>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const GIB = 2 ** 30;
+
+$("machine").addEventListener("change", () => {
+  $("custom-wrap").hidden = $("machine").value !== "c";
+});
+document.querySelectorAll("[data-copy]").forEach(b =>
+  b.addEventListener("click", () => {
+    navigator.clipboard.writeText($(b.dataset.copy).textContent);
+    const t = b.textContent; b.textContent = "Copied"; setTimeout(() => b.textContent = t, 1200);
+  }));
+
+function usableBytes() {
+  const v = $("machine").value;
+  if (v === "c") return parseFloat($("custom").value) * GIB || 0;
+  const [kind, gb] = v.split(":");
+  // Apple: macOS wires ~74% of unified memory for the GPU.
+  // NVIDIA: leave ~1.5 GiB of a card's VRAM to the desktop and driver.
+  return kind === "a" ? +gb * 1e9 * 0.74 : (+gb - 1.5) * GIB;
+}
+const estOverhead = ctx => 512 * 2 ** 20 + 320 * 2 ** 20 + ctx * 160 * 1024;
+const verdictFor = b =>
+  b >= 16 ? ["runs at full precision", false] :
+  b >= 8.5 ? ["near-lossless (Q8-class)", false] :
+  b >= 6 ? ["excellent (Q6-class)", false] :
+  b >= 4.5 ? ["good (Q4/Q5-class)", false] :
+  b >= 3 ? ["tight — worthwhile for a big model", true] :
+  ["at the floor, heavily degraded", true];
+
+// Mirrors the CLI's source selection: largest BF16, then F16, then F32;
+// mmproj projectors excluded; split shards summed.
+function selectSource(files) {
+  const usable = files.filter(f =>
+    f.path.toLowerCase().endsWith(".gguf") &&
+    !f.path.split("/").pop().toLowerCase().startsWith("mmproj"));
+  const pick = tag => usable
+    .filter(f => { const l = f.path.toLowerCase(); return l.includes(tag) && (tag !== "f16" || !l.includes("bf16")); })
+    .sort((a, b) => b.size - a.size)[0];
+  const best = pick("bf16") || pick("f16") || pick("f32");
+  if (!best) return null;
+  let total = best.size, isF32 = !/bf16|(?<!b)f16/.test(best.path.toLowerCase());
+  const of = best.path.indexOf("-of-");
+  if (of > 0) {
+    const prefix = best.path.slice(0, best.path.lastIndexOf("-", of - 1));
+    total = usable.filter(f => f.path.startsWith(prefix) && f.path.includes("-of-"))
+      .reduce((s, f) => s + f.size, 0);
+  }
+  return { bytes: total, perParam: isF32 ? 4 : 2 };
+}
+
+const nameHint = repo => {
+  const m = [...repo.matchAll(/(?<![A-Za-z])(\d+(?:\.\d+)?)[bB](?![A-Za-z0-9])/g)];
+  return m.length ? Math.max(...m.map(x => +x[1])) : null;
+};
+
+$("scan").addEventListener("click", async () => {
+  const usable = usableBytes();
+  if (!usable) { $("scan-note").textContent = "enter your memory size first"; return; }
+  const ctx = +$("ctx").value;
+  const budget = usable - estOverhead(ctx);
+  if (budget <= 0) { $("scan-note").textContent = "no room for weights at that context"; return; }
+  $("scan").disabled = true;
+  $("results").innerHTML = "";
+  try {
+    const list = await (await fetch(
+      "https://huggingface.co/api/models?filter=gguf&pipeline_tag=text-generation&sort=downloads&direction=-1&limit=40"
+    )).json();
+    const out = [];
+    let done = 0;
+    const work = list.map(m => async () => {
+      try {
+        const files = await (await fetch(
+          `https://huggingface.co/api/models/${m.id}/tree/main`)).json();
+        const src = Array.isArray(files) && selectSource(files);
+        if (src && src.bytes) {
+          const params = src.bytes / src.perParam;
+          const hint = nameHint(m.id);
+          if (!(hint && params / 1e9 < hint * 0.3)) {
+            out.push({ repo: m.id, params, bpw: Math.min(budget * 8 / params, 16) });
+          }
+        }
+      } catch {}
+      $("scan-note").textContent = `scanning ${++done}/${list.length}…`;
+    });
+    // eight repos in flight at a time
+    const lanes = Array.from({ length: 8 }, async () => {
+      while (work.length) await work.shift()();
+    });
+    await Promise.all(lanes);
+    const rows = out.filter(s => s.bpw >= 2.06);
+    rows.sort((a, b) => {
+      const tier = s => s.bpw >= 4.5 ? 2 : s.bpw >= 3 ? 1 : 0;
+      return tier(b) - tier(a) || b.params - a.params;
+    });
+    $("scan-note").textContent = rows.length
+      ? `estimates for ${(usable / GIB).toFixed(1)} GiB usable — the fit itself solves exactly`
+      : "nothing with a full-precision source fits that budget";
+    for (const s of rows.slice(0, 10)) {
+      const row = document.createElement("div");
+      row.className = "model-row";
+      const [verdict, tight] = verdictFor(s.bpw);
+      const head = document.createElement("div");
+      head.className = "model-head";
+      head.innerHTML = `<span class="name"></span><span>${(s.params / 1e9).toFixed(1)}B</span>` +
+        `<span class="verdict${tight ? " tight" : ""}">${verdict}</span>`;
+      head.querySelector(".name").textContent = s.repo;
+      const cmdId = "cmd-" + s.repo.replace(/[^a-zA-Z0-9]/g, "-");
+      const cmd = document.createElement("div");
+      cmd.className = "cmd";
+      const code = document.createElement("code");
+      code.id = cmdId;
+      code.textContent = `shoehorn fit ${s.repo} --serve`;
+      const btn = document.createElement("button");
+      btn.textContent = "Copy";
+      btn.addEventListener("click", () => {
+        navigator.clipboard.writeText(code.textContent);
+        btn.textContent = "Copied"; setTimeout(() => btn.textContent = "Copy", 1200);
+      });
+      cmd.append(code, btn);
+      row.append(head, cmd);
+      $("results").append(row);
+    }
+  } catch {
+    $("scan-note").textContent = "Hugging Face didn't answer — try again in a moment";
+  } finally {
+    $("scan").disabled = false;
+  }
+});
+
+if (location.hash === "#scan") $("scan").click();
+
+// Point the download cards at the newest release's actual assets.
+fetch("https://api.github.com/repos/notactuallytreyanastasio/shoehorn/releases/latest")
+  .then(r => r.json())
+  .then(rel => {
+    const find = tag => rel.assets?.find(a => a.name.includes(tag))?.browser_download_url;
+    const wire = (id, tag) => { const u = find(tag); if (u) $(id).href = u; };
+    wire("dl-mac", "darwin");
+    wire("dl-linux", "linux");
+    wire("dl-win", "windows");
+    if (rel.tag_name) $("rel-link").textContent = `releases (latest ${rel.tag_name})`;
+  })
+  .catch(() => {});
+</script>
+</body>
+</html>
