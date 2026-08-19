@@ -1,6 +1,6 @@
 [package]
 name = "shoehorn"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 description = "Quantize a BF16 GGUF with an imatrix to exactly fit your VRAM, then run it with llama.cpp"
 license = "MIT"
