@@ -179,6 +179,13 @@
   .fit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font: 13px var(--mono); }
   .fit-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fit-row .meta { color: var(--ink-soft); flex: none; }
+  .fit-row .note {
+    flex-basis: 100%;
+    color: var(--tape-deep);
+    font-size: 12px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .fit-row button { padding: 7px 14px; font-size: 13px; flex: none; }
   #logbox { margin-top: 16px; }
   #log {
@@ -599,7 +606,7 @@ $("disco").addEventListener("click", async () => {
       name.textContent = m.repo;
       const meta = document.createElement("span");
       meta.className = "meta";
-      meta.textContent = `${m.params_b}B — ${m.verdict}` + (m.native ? ` · ${m.native}` : "");
+      meta.textContent = `${m.params_b}B — ${m.verdict}`;
       const btn = document.createElement("button");
       btn.className = "quiet";
       btn.textContent = "Use";
@@ -608,6 +615,12 @@ $("disco").addEventListener("click", async () => {
         $("model").focus();
       });
       row.append(name, meta, btn);
+      if (m.native) {
+        const note = document.createElement("span");
+        note.className = "note";
+        note.textContent = m.native;
+        row.append(note);
+      }
       $("disco-list").append(row);
     }
     $("disco-note").textContent = rows.length
