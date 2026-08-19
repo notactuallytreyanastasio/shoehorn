@@ -375,7 +375,7 @@ Fit flags, shared by `fit`, `plan`, and `quantize`:
 | `-m, --model` | required | BF16/F16/F32 source GGUF (already-quantized sources also read, via the in-crate decoders) |
 | `-i, --imatrix` | none | imatrix file, legacy binary or GGUF-based; omitting it warns and falls back to activation-agnostic weighting |
 | `--ctx` | 8192 | context length the KV budget is computed for |
-| `--budget` | GPU probe | total memory envelope: `18GiB`, `800MB`, `4.5G`, or plain bytes |
+| `--budget` | GPU probe | total memory envelope: `18GiB`, `800MB`, `4.5G` — a bare number like `16` reads as GiB |
 | `--target` | — | budget for a different unified-memory machine by RAM size, e.g. `--target 16GB` (approximates the macOS working-set limit as 74% of RAM) |
 | `--kv` | f16 | KV cache type to budget for and run with (`f16`, `q8_0`, `q4_0`); `q8_0` roughly halves the KV term, freeing that memory for weights |
 | `--reserve` | 512MiB (160MiB with `--calibrate`) | safety margin subtracted from the envelope |

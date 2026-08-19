@@ -51,7 +51,8 @@ struct FitArgs {
     /// context length to budget the KV cache for
     #[arg(long, default_value_t = 8192)]
     ctx: u64,
-    /// override detected VRAM, e.g. "18GiB", "800MB", or bytes
+    /// override detected VRAM, e.g. "18GiB", "800MB", or a bare number
+    /// (read as GiB)
     #[arg(long)]
     budget: Option<String>,
     /// budget for a different (unified-memory) machine by its RAM size,
@@ -224,7 +225,28 @@ fn parse_size(s: &str) -> Result<u64> {
         (lower.as_str(), 1)
     };
     let v: f64 = num.trim().parse().with_context(|| format!("bad size {s:?}"))?;
+    // A bare "16" means 16 GiB, not 16 bytes: nobody budgets in bytes that
+    // small, while genuine byte counts (from scripts) are far larger.
+    let mult = if mult == 1 && v != 0.0 && v <= 4096.0 { 1u64 << 30 } else { mult };
     Ok((v * mult as f64) as u64)
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::parse_size;
+
+    #[test]
+    fn bare_small_numbers_read_as_gib() {
+        assert_eq!(parse_size("16").unwrap(), 16 << 30);
+        assert_eq!(parse_size("0.5").unwrap(), 1 << 29);
+        assert_eq!(parse_size("0").unwrap(), 0);
+        // real byte counts still work
+        assert_eq!(parse_size("884736").unwrap(), 884736);
+        // suffixes unchanged
+        assert_eq!(parse_size("16GiB").unwrap(), 16 << 30);
+        assert_eq!(parse_size("800MB").unwrap(), 800_000_000);
+        assert_eq!(parse_size("160MiB").unwrap(), 160 << 20);
+    }
 }
 
 fn fmt_size(b: u64) -> String {
